@@ -9,13 +9,28 @@ notes-ai/
 ├── api/
 │   ├── config.js       ← Returns Firebase config from env vars
 │   └── groq.js         ← Proxies Groq API calls (keeps key secret)
-├── public/
-│   ├── index.html      ← Main app
-│   ├── manifest.json   ← PWA manifest (Android install)
-│   └── sw.js           ← Service worker (offline)
+├── index.html          ← Landing page (public notes viewer)
+├── auth.html           ← Login / Sign up page
+├── app.html            ← Main app (requires auth)
+├── manifest.json       ← PWA manifest (Android install)
+├── sw.js               ← Service worker (offline)
 ├── .env.example        ← Copy to .env.local for local dev
 └── vercel.json         ← Routing config
 ```
+
+## Pages
+
+| Page | File | Access |
+|---|---|---|
+| Landing | `index.html` | Public — shows all notes, hero, features |
+| Auth | `auth.html` | Public — login & signup, redirects to app on success |
+| App | `app.html` | Auth-only — auto-redirects to `auth.html` if not logged in |
+
+## AI Auto-Category
+
+Categories are **fully AI-generated** — no manual selection needed. When you paste notes, Groq (Llama 3.3 70B) analyzes the content and automatically assigns the most relevant category. Examples: `IT`, `STUDY`, `FREELANCE`, `CRYPTO`, `PERSONAL`, `HEALTH`, `BUSINESS`, `DESIGN`, `LANGUAGE`, `FOOD`, `TRAVEL`, `FINANCE`, `SCIENCE`, `ART`, or any other category the AI deems appropriate.
+
+Unknown AI-generated categories are automatically assigned a dynamic color in the UI.
 
 ## Deploy to Vercel
 
