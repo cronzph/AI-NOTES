@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#050810">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Notes AI — Sign In</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+
+  async function initFirebase() {
+    try {
+      const res = await fetch('/api/config');
+      if (!res.ok) throw new Error('Config fetch failed');
+      const { firebase } = await res.json();
+      const app = initializeApp(firebase);
+      const auth = getAuth(app);
+      window._auth = auth;
+      window._signIn = (e,p) => signInWithEmailAndPassword(auth,e,p);
+      window._signUp = (e,p,n) => createUserWithEmailAndPassword(auth,e,p).then(r=>updateProfile(r.user,{displayName:n}).then(()=>r));
+
+      // If already logged in, redirect to app
+      onAuthStateChanged(auth, user => {
+        if (user) { window.location.href = 'app.html'; }
+      });
+    } catch(err) {
+      console.error(err);
+    }
+  }
+  initFirebase();
+</script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#050810;--surface:#0c1022;--surface2:#10162e;--surface3:#151e3f;
+  --border:rgba(59,130,246,0.1);--border-h:rgba(59,130,246,0.28);
+  --text:#7a9ac7;--text-b:#ddeeff;--text-m:#2e4470;
+  --a:#3b82f6;--a2:#60a5fa;--ag:rgba(59,130,246,0.13);
+  --red:#f87171;--r:16px;--rs:10px;
+}
+body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+
+.orb{position:fixed;border-radius:50%;pointer-events:none;z-index:0}
+.orb1{width:700px;height:700px;background:radial-gradient(circle,rgba(59,130,246,0.06) 0%,transparent 70%);top:-250px;right:-150px;animation:orb 14s ease-in-out infinite alternate}
+.orb2{width:500px;height:500px;background:radial-gradient(circle,rgba(34,211,238,0.04) 0%,transparent 70%);bottom:-150px;left:-100px;animation:orb 18s ease-in-out infinite alternate-reverse}
+@keyframes orb{from{transform:translate(0,0) scale(1)}to{transform:translate(40px,-30px) scale(1.1)}}
+
+/* INSTALL STRIP */
+#install-strip{display:none;position:fixed;top:0;left:0;right:0;z-index:200;background:linear-gradient(90deg,#0d1f4e,#0c1022);border-bottom:1px solid var(--border-h);padding:10px 16px;align-items:center;justify-content:space-between;gap:10px;animation:slideDown 0.4s cubic-bezier(0.34,1.56,0.64,1)}
+#install-strip.show{display:flex}
+@keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+.s-left{display:flex;align-items:center;gap:10px}
+.s-icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#22d3ee);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.s-title{font-size:13px;font-weight:700;color:var(--text-b)}
+.s-sub{font-size:11px;color:var(--text-m);margin-top:1px}
+.s-btns{display:flex;gap:6px;flex-shrink:0}
+.s-dismiss{background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-m);font-size:11px;font-weight:600;padding:5px 10px;cursor:pointer;font-family:'Outfit',sans-serif}
+.s-install{background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;border-radius:7px;color:#fff;font-size:12px;font-weight:700;padding:6px 14px;cursor:pointer;font-family:'Outfit',sans-serif;white-space:nowrap}
+
+/* NAV */
+.nav{position:sticky;top:0;z-index:100;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:rgba(5,8,16,0.92);backdrop-filter:blur(28px);border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;color:var(--text-b);letter-spacing:-0.5px;text-decoration:none}
+.logo-mark{width:30px;height:30px;background:linear-gradient(135deg,#3b82f6,#22d3ee);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 18px rgba(59,130,246,0.4);animation:lgo 3s ease-in-out infinite}
+@keyframes lgo{0%,100%{box-shadow:0 0 14px rgba(59,130,246,0.4)}50%{box-shadow:0 0 30px rgba(59,130,246,0.65)}}
+.back-btn{padding:7px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s}
+.back-btn:hover{border-color:var(--border-h);color:var(--text-b)}
+
+/* AUTH CONTENT */
+.auth-main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:clamp(24px,5vw,52px) 20px;position:relative;z-index:1}
+
+.auth-box{background:var(--surface);border:1px solid var(--border-h);border-radius:20px;padding:clamp(24px,5vw,36px);width:100%;max-width:420px;box-shadow:0 24px 80px rgba(0,0,0,0.5);animation:authIn 0.4s cubic-bezier(0.34,1.56,0.64,1)}
+@keyframes authIn{from{opacity:0;transform:translateY(20px) scale(0.95)}to{opacity:1;transform:none}}
+
+.auth-logo{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+.auth-logo-mark{width:36px;height:36px;background:linear-gradient(135deg,#3b82f6,#22d3ee);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 20px rgba(59,130,246,0.4)}
+.auth-logo-text{font-size:20px;font-weight:900;color:var(--text-b)}
+.auth-desc{font-size:13px;color:var(--text-m);margin-top:2px}
+
+.auth-tabs{display:flex;gap:4px;margin-bottom:24px;background:var(--surface2);border-radius:10px;padding:4px}
+.auth-tab{flex:1;padding:9px;border-radius:8px;border:none;background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s}
+.auth-tab.active{background:var(--surface3);color:var(--text-b)}
+
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-m);font-family:'JetBrains Mono',monospace;margin-bottom:7px}
+.field input{width:100%;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:14px;outline:none;transition:all 0.2s}
+.field input:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
+.field input::placeholder{color:var(--text-m)}
+
+.auth-btn{width:100%;padding:13px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;border-radius:10px;color:#fff;font-family:'Outfit',sans-serif;font-size:15px;font-weight:800;cursor:pointer;transition:all 0.25s;box-shadow:0 4px 20px rgba(59,130,246,0.3);margin-top:4px}
+.auth-btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(59,130,246,0.45)}
+.auth-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+
+.auth-err{background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.25);border-radius:8px;padding:10px 14px;font-size:12.5px;color:var(--red);margin-top:12px;display:none}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border-h);border-radius:12px;padding:10px 20px;font-size:13px;font-weight:600;color:var(--text-b);z-index:400;display:none;white-space:nowrap;box-shadow:0 10px 40px rgba(0,0,0,0.45)}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+</style>
+</head>
+<body>
+
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<!-- INSTALL STRIP -->
+<div id="install-strip">
+  <div class="s-left">
+    <div class="s-icon">✦</div>
+    <div>
+      <div class="s-title">Install Notes AI</div>
+      <div class="s-sub">I-add sa Home Screen para mas mabilis</div>
+    </div>
+  </div>
+  <div class="s-btns">
+    <button class="s-dismiss" onclick="dismissInstall()">Later</button>
+    <button class="s-install" onclick="installApp()">📲 Install</button>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <a class="logo" href="index.html">
+    <div class="logo-mark">✦</div>
+    <span>Notes AI</span>
+  </a>
+  <a class="back-btn" href="index.html">← Back</a>
+</nav>
+
+<!-- AUTH MAIN -->
+<main class="auth-main">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="auth-logo-mark">✦</div>
+      <div>
+        <div class="auth-logo-text">Notes AI</div>
+        <div class="auth-desc">by CRONZPH</div>
+      </div>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login" onclick="authSwitch('login')">Log In</button>
+      <button class="auth-tab" id="tab-signup" onclick="authSwitch('signup')">Sign Up</button>
+    </div>
+
+    <!-- LOGIN FORM -->
+    <div id="form-login">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="li-email" placeholder="your@email.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="li-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <button class="auth-btn" id="li-btn" onclick="doLogin()">Log In →</button>
+    </div>
+
+    <!-- SIGNUP FORM -->
+    <div id="form-signup" style="display:none">
+      <div class="field">
+        <label>Display Name</label>
+        <input type="text" id="su-name" placeholder="CRONZPH" autocomplete="name">
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="su-email" placeholder="your@email.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="su-pass" placeholder="min. 6 characters" autocomplete="new-password" onkeydown="if(event.key==='Enter')doSignup()">
+      </div>
+      <button class="auth-btn" id="su-btn" onclick="doSignup()">Create Account →</button>
+    </div>
+
+    <div class="auth-err" id="auth-err"></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let deferredPrompt = null;
+
+function authSwitch(m) {
+  document.getElementById('tab-login').classList.toggle('active', m==='login');
+  document.getElementById('tab-signup').classList.toggle('active', m==='signup');
+  document.getElementById('form-login').style.display = m==='login'?'block':'none';
+  document.getElementById('form-signup').style.display = m==='signup'?'block':'none';
+  document.getElementById('auth-err').style.display = 'none';
+}
+
+async function doLogin() {
+  const e = document.getElementById('li-email').value.trim();
+  const p = document.getElementById('li-pass').value;
+  if (!e||!p) return showErr('Fill in all fields');
+  const btn = document.getElementById('li-btn');
+  btn.disabled=true; btn.textContent='Logging in...';
+  try {
+    await window._signIn(e,p);
+    showToast('✦ Welcome back!');
+    setTimeout(()=>window.location.href='app.html', 400);
+  } catch(err) { showErr(friendlyErr(err.code)); }
+  btn.disabled=false; btn.textContent='Log In →';
+}
+
+async function doSignup() {
+  const n = document.getElementById('su-name').value.trim();
+  const e = document.getElementById('su-email').value.trim();
+  const p = document.getElementById('su-pass').value;
+  if (!n||!e||!p) return showErr('Fill in all fields');
+  if (p.length<6) return showErr('Password must be at least 6 characters');
+  const btn = document.getElementById('su-btn');
+  btn.disabled=true; btn.textContent='Creating account...';
+  try {
+    await window._signUp(e,p,n);
+    showToast('✦ Welcome, '+n+'!');
+    setTimeout(()=>window.location.href='app.html', 400);
+  } catch(err) { showErr(friendlyErr(err.code)); }
+  btn.disabled=false; btn.textContent='Create Account →';
+}
+
+function showErr(msg) {
+  const el = document.getElementById('auth-err');
+  el.textContent=msg; el.style.display='block';
+}
+
+function friendlyErr(code) {
+  const map = {'auth/user-not-found':'No account with that email','auth/wrong-password':'Wrong password','auth/email-already-in-use':'Email already in use','auth/invalid-email':'Invalid email address','auth/weak-password':'Password too weak (min 6 chars)','auth/too-many-requests':'Too many attempts. Try again later.','auth/invalid-credential':'Invalid email or password'};
+  return map[code]||'Error: '+code;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent=msg; t.style.display='block';
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none',3000);
+}
+
+/* PWA */
+function showStrip(){ document.getElementById('install-strip').classList.add('show'); }
+function hideStrip(){ document.getElementById('install-strip').classList.remove('show'); }
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; if(!sessionStorage.getItem('installDismissed')) showStrip(); });
+async function installApp(){
+  if(deferredPrompt){ deferredPrompt.prompt(); const{outcome}=await deferredPrompt.userChoice; deferredPrompt=null; hideStrip(); }
+  else{ showToast(/iPhone|iPad|iPod/i.test(navigator.userAgent)?'📲 Tap Share → Add to Home Screen':'📲 Open browser menu → Install App'); setTimeout(hideStrip,500); }
+}
+function dismissInstall(){ sessionStorage.setItem('installDismissed','1'); hideStrip(); }
+(function(){ const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent); const isStandalone=window.matchMedia('(display-mode:standalone)').matches||navigator.standalone; if(isMobile&&!isStandalone&&!sessionStorage.getItem('installDismissed')) setTimeout(showStrip,1500); })();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
