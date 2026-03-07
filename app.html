@@ -11,7 +11,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
-  import { getDatabase, ref, push, onValue, remove } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
+  import { getDatabase, ref, push, onValue, remove, update } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
   import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 
   async function initFirebase() {
@@ -23,7 +23,7 @@
       const db = getDatabase(app);
       const auth = getAuth(app);
       window._db = db; window._auth = auth;
-      window._ref = ref; window._push = push; window._remove = remove;
+      window._ref = ref; window._push = push; window._remove = remove; window._update = update;
       window._signOut = () => signOut(auth);
 
       onAuthStateChanged(auth, user => {
@@ -57,7 +57,7 @@
   --border:rgba(59,130,246,0.1);--border-h:rgba(59,130,246,0.28);
   --text:#7a9ac7;--text-b:#ddeeff;--text-m:#2e4470;
   --a:#3b82f6;--a2:#60a5fa;--ag:rgba(59,130,246,0.13);--ag2:rgba(59,130,246,0.06);
-  --cyan:#22d3ee;--red:#f87171;--r:16px;--rs:10px;
+  --cyan:#22d3ee;--red:#f87171;--green:#4ade80;--r:16px;--rs:10px;
 }
 html,body{height:100%;overflow:hidden}
 body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;display:flex;flex-direction:column}
@@ -138,6 +138,33 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .ai-cat-hint .ai-ico{font-size:14px;flex-shrink:0}
 
+/* ===== VISIBILITY TOGGLE ===== */
+.vis-toggle-wrap{padding:0 12px;flex-shrink:0;margin-bottom:2px}
+.vis-toggle{
+  width:100%;display:flex;align-items:center;border-radius:var(--rs);overflow:hidden;
+  border:1px solid var(--border);background:var(--surface2);
+}
+.vis-opt{
+  flex:1;padding:9px 6px;display:flex;align-items:center;justify-content:center;gap:6px;
+  font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;
+  cursor:pointer;transition:all 0.22s;color:var(--text-m);border:none;background:transparent;
+}
+.vis-opt span{font-size:14px;line-height:1}
+.vis-opt.active-pub{
+  background:linear-gradient(135deg,rgba(34,211,238,0.18),rgba(59,130,246,0.18));
+  color:var(--cyan);
+  border-right:none;
+}
+.vis-opt.active-priv{
+  background:linear-gradient(135deg,rgba(129,140,248,0.18),rgba(99,102,241,0.18));
+  color:#a78bfa;
+}
+.vis-opt:hover:not(.active-pub):not(.active-priv){
+  color:var(--text-b);background:var(--ag2);
+}
+.vis-divider{width:1px;background:var(--border);flex-shrink:0}
+/* ============================= */
+
 .proc-area{padding:0 12px 12px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
 .proc-btn{width:100%;padding:12px;border:none;border-radius:var(--rs);background:linear-gradient(135deg,#3b82f6 0%,#1d4ed8 100%);color:#fff;font-family:'Outfit',sans-serif;font-size:14px;font-weight:800;cursor:pointer;transition:all 0.25s;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 18px rgba(59,130,246,0.3);position:relative;overflow:hidden}
 .proc-btn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,0.12) 0%,transparent 50%)}
@@ -162,6 +189,14 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .fb:hover{border-color:var(--border-h);color:var(--text)}
 .fb.on{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
 
+/* VISIBILITY FILTER ROW */
+.vis-filter-row{display:flex;gap:6px;margin-bottom:10px}
+.vfb{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;font-family:'Outfit',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;color:var(--text-m)}
+.vfb:hover{border-color:var(--border-h);color:var(--text-b)}
+.vfb.on-all{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
+.vfb.on-pub{background:rgba(34,211,238,0.1);border-color:rgba(34,211,238,0.3);color:var(--cyan)}
+.vfb.on-priv{background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.3);color:#a78bfa}
+
 .app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(220px,28vw,270px),1fr));gap:12px}
 
 /* NOTE CARD */
@@ -172,6 +207,19 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .nc-top{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .cpill{font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:1px;padding:3px 9px;border-radius:6px;white-space:nowrap}
 .nc-date{font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace}
+
+/* VISIBILITY BADGE ON CARD */
+.vis-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;
+  letter-spacing:0.5px;padding:3px 8px;border-radius:6px;
+  cursor:pointer;transition:all 0.2s;border:1px solid transparent;
+  white-space:nowrap;flex-shrink:0;
+}
+.vis-badge.pub{background:rgba(34,211,238,0.1);color:var(--cyan);border-color:rgba(34,211,238,0.2)}
+.vis-badge.priv{background:rgba(167,139,250,0.1);color:#a78bfa;border-color:rgba(167,139,250,0.2)}
+.vis-badge:hover{filter:brightness(1.2);transform:scale(1.04)}
+
 .nc-title{font-size:14px;font-weight:700;color:var(--text-b);line-height:1.3;margin-bottom:7px}
 .nc-summary{font-size:12.5px;color:var(--text);line-height:1.6;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .anc-foot{display:flex;align-items:center;justify-content:space-between;padding-top:10px;margin-top:10px;border-top:1px solid var(--border)}
@@ -315,11 +363,25 @@ Bahala na si AI mag-organize at mag-detect ng category 😄"></textarea>
       </div>
     </div>
 
-    <!-- AI will auto-detect category, just a hint display -->
-    <div class="ai-cat-hint" id="catHint">
+    <!-- AI category hint -->
+    <div class="ai-cat-hint show" id="catHint">
       <span class="ai-ico">🤖</span>
       <span id="catHintText">AI will auto-detect category</span>
     </div>
+
+    <!-- ===== VISIBILITY TOGGLE ===== -->
+    <div class="vis-toggle-wrap">
+      <div class="vis-toggle">
+        <button class="vis-opt active-pub" id="vOptPub" onclick="setVisibility('public')">
+          <span>🌐</span> Public
+        </button>
+        <div class="vis-divider"></div>
+        <button class="vis-opt" id="vOptPriv" onclick="setVisibility('private')">
+          <span>🔒</span> Private
+        </button>
+      </div>
+    </div>
+    <!-- ================================ -->
 
     <div class="proc-area">
       <div class="lbar" id="lbar">
@@ -335,6 +397,12 @@ Bahala na si AI mag-organize at mag-detect ng category 😄"></textarea>
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
+    <!-- Visibility filter row -->
+    <div class="vis-filter-row">
+      <button class="vfb on-all" id="vfAll" onclick="setVisFilt('all',this)">📋 All</button>
+      <button class="vfb" id="vfPub" onclick="setVisFilt('public',this)">🌐 Public</button>
+      <button class="vfb" id="vfPriv" onclick="setVisFilt('private',this)">🔒 Private</button>
+    </div>
     <div class="filters" id="app-filters">
       <button class="fb on" onclick="setAppF('ALL',this)">All</button>
     </div>
@@ -359,11 +427,32 @@ Bahala na si AI mag-organize at mag-detect ng category 😄"></textarea>
 <script>
 const GROQ_URL = '/api/groq';
 window.allNotes = window.allNotes || [];
-let appFilt = 'ALL', searchQ = '';
+let appFilt = 'ALL', searchQ = '', visFilt = 'all';
 let b64 = null, tab = 'text';
+let noteVisibility = 'public'; // default
 let deferredPrompt = null;
 
-// ===== CATEGORY CONFIG (AI generates freely, these just define styling) =====
+// ===== VISIBILITY TOGGLE (sidebar) =====
+function setVisibility(v) {
+  noteVisibility = v;
+  document.getElementById('vOptPub').className = 'vis-opt' + (v==='public'?' active-pub':'');
+  document.getElementById('vOptPriv').className = 'vis-opt' + (v==='private'?' active-priv':'');
+}
+
+// ===== VISIBILITY FILTER (main grid) =====
+function setVisFilt(v, btn) {
+  visFilt = v;
+  ['vfAll','vfPub','vfPriv'].forEach(id => {
+    const el = document.getElementById(id);
+    el.className = 'vfb';
+  });
+  if (v==='all') btn.classList.add('on-all');
+  else if (v==='public') btn.classList.add('on-pub');
+  else btn.classList.add('on-priv');
+  renderApp();
+}
+
+// ===== CATEGORY CONFIG =====
 const knownCats = {
   IT:    { stripe:'linear-gradient(90deg,#3b82f6,#60a5fa)', pill:'cIT',    emoji:'💻' },
   STUDY: { stripe:'linear-gradient(90deg,#22d3ee,#67e8f9)', pill:'cSTUDY', emoji:'📚' },
@@ -372,8 +461,6 @@ const knownCats = {
   PERSONAL:{ stripe:'linear-gradient(90deg,#818cf8,#c4b5fd)', pill:'cPERSONAL', emoji:'🙋' },
   OTHER: { stripe:'linear-gradient(90deg,#94a3b8,#cbd5e1)', pill:'cOTHER',  emoji:'📌' },
 };
-
-// Dynamic colors for AI-generated categories not in knownCats
 const dynColors = [
   'linear-gradient(90deg,#34d399,#6ee7b7)',
   'linear-gradient(90deg,#f472b6,#fbcfe8)',
@@ -403,7 +490,6 @@ function getCatStyle(cat) {
   }
   return catColorCache[cat];
 }
-
 function getCatStripe(cat) { return getCatStyle(cat).stripe; }
 function getCatPill(cat) {
   const s = getCatStyle(cat);
@@ -412,7 +498,7 @@ function getCatPill(cat) {
 }
 function getCatEmoji(cat) { return getCatStyle(cat).emoji || '🏷️'; }
 
-// ===== AI PROMPT — category is fully open-ended, AI decides =====
+// ===== AI PROMPT =====
 const SYS_PROMPT = `Ikaw ay isang expert notes organizer. Mag-return ng PURE JSON ONLY — walang markdown backticks, walang preamble, walang explanation. Format:
 {
   "title": "Maikling title, max 10 words",
@@ -464,9 +550,6 @@ document.addEventListener('paste', e=>{
   }
 });
 
-// Hint: show AI will auto-detect
-document.getElementById('catHint').classList.add('show');
-
 // ===== PROCESS =====
 async function process() {
   if (!window._currentUser) { showToast('⚠️ Log in first!'); return; }
@@ -500,7 +583,7 @@ async function callGroq(text) {
     const p = JSON.parse(raw);
     await saveNote(p, 'text');
     document.getElementById('txtArea').value = '';
-    showToast(`✦ Saved as [${p.category}]`);
+    showToast(`✦ Saved as [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   } catch(err) { console.error(err); showToast('⚠️ '+err.message); }
   setLoading(false);
 }
@@ -517,7 +600,8 @@ async function callGroqVision(imgB64) {
     const raw = data.choices[0].message.content.replace(/```json|```/g,'').trim();
     const p = JSON.parse(raw);
     await saveNote(p, 'img');
-    clearImg(); showToast(`✦ Image saved as [${p.category}]`);
+    clearImg();
+    showToast(`✦ Image saved as [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   } catch(err) { console.error(err); showToast('⚠️ '+err.message); }
   setLoading(false);
 }
@@ -531,6 +615,7 @@ async function saveNote(p, source) {
     keyPoints: p.keyPoints||[],
     organizedContent: p.organizedContent||'',
     source,
+    isPublic: noteVisibility === 'public',   // ← NEW FIELD
     date: new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}),
     author: window._currentUser?.displayName || window._currentUser?.email || 'Anonymous',
   };
@@ -538,6 +623,22 @@ async function saveNote(p, source) {
     try { await window._push(window._ref(window._db,'notes'), note); }
     catch(e) { console.error(e); window.allNotes.unshift(note); renderApp(); }
   } else { window.allNotes.unshift(note); renderApp(); }
+}
+
+// ===== TOGGLE VISIBILITY OF EXISTING NOTE =====
+async function toggleNoteVisibility(fbKey, currentIsPublic, e) {
+  e.stopPropagation();
+  const newVal = !currentIsPublic;
+  if (window._db && window._update && window._ref && fbKey) {
+    try {
+      await window._update(window._ref(window._db, `notes/${fbKey}`), { isPublic: newVal });
+      showToast(newVal ? '🌐 Set to Public' : '🔒 Set to Private');
+    } catch(err) { console.error(err); showToast('⚠️ Update failed'); }
+  } else {
+    const n = window.allNotes.find(x=>x.fbKey===fbKey);
+    if (n) { n.isPublic = newVal; renderApp(); }
+    showToast(newVal ? '🌐 Set to Public' : '🔒 Set to Private');
+  }
 }
 
 async function delNote(id, fbKey, e) {
@@ -567,17 +668,27 @@ function renderApp() {
   buildAppFilters();
   const g = document.getElementById('app-grid'); if(!g) return;
   let list = appFilt==='ALL' ? [...window.allNotes] : window.allNotes.filter(n=>n.category===appFilt);
+
+  // Apply visibility filter
+  if (visFilt==='public') list = list.filter(n => n.isPublic === true);
+  else if (visFilt==='private') list = list.filter(n => n.isPublic !== true);
+
   if (searchQ) list = list.filter(n=>[n.title,n.summary,n.organizedContent,n.category].some(s=>(s||'').toLowerCase().includes(searchQ)));
   if (!list.length) {
-    g.innerHTML=`<div class="empty"><div class="empty-ico">${searchQ?'🔍':'📋'}</div><div class="empty-t">${searchQ?'Walang nahanap':'No notes yet'}</div><div class="empty-s">${searchQ?`No results for "${searchQ}"`:'I-paste ang iyong notes sa left!'}</div></div>`;
+    g.innerHTML=`<div class="empty"><div class="empty-ico">${searchQ?'🔍':'📋'}</div><div class="empty-t">${searchQ?'Walang nahanap':'No notes here'}</div><div class="empty-s">${searchQ?`No results for "${searchQ}"`:'Wala pang notes dito'}</div></div>`;
     return;
   }
-  g.innerHTML = list.map(n => `
+  g.innerHTML = list.map(n => {
+    const isPub = n.isPublic === true;
+    return `
     <div class="anc" onclick="openNote('${n.fbKey||n.id}')">
       <div class="nc-stripe" style="background:${getCatStripe(n.category)}"></div>
       <div class="nc-top">
         <span ${getCatPill(n.category)}>${getCatEmoji(n.category)} ${n.category}</span>
         <span class="nc-date">${n.date||''}</span>
+        <span class="vis-badge ${isPub?'pub':'priv'}" title="Click to toggle visibility" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">
+          ${isPub?'🌐 Public':'🔒 Private'}
+        </span>
       </div>
       <div class="nc-title">${esc(n.title)}</div>
       <div class="nc-summary">${esc(n.summary)}</div>
@@ -588,7 +699,8 @@ function renderApp() {
           <button class="anc-btn del" onclick="delNote(${n.id},'${n.fbKey||''}',event)">Delete</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -598,14 +710,18 @@ function doSearch(v) { searchQ=v.toLowerCase(); renderApp(); }
 // ===== MODAL =====
 function openNote(key) {
   const n = window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key))); if(!n) return;
+  const isPub = n.isPublic === true;
   document.getElementById('mt').textContent = n.title;
   const fmt = (n.organizedContent||'')
     .replace(/##\s(.+)/g,'<div style="font-size:14px;font-weight:800;color:var(--text-b);margin:16px 0 7px;border-bottom:1px solid var(--border);padding-bottom:6px">$1</div>')
     .replace(/•\s(.+)/g,'<div style="display:flex;gap:9px;margin:5px 0;font-size:13px"><span style="color:var(--a2);flex-shrink:0">•</span><span>$1</span></div>')
     .replace(/\n/g,'<br>');
   document.getElementById('mb').innerHTML = `
-    <div style="margin-bottom:14px">
+    <div style="margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span ${getCatPill(n.category)} style="font-size:12px">${getCatEmoji(n.category)} ${n.category}</span>
+      <span class="vis-badge ${isPub?'pub':'priv'}" style="cursor:pointer" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event);closeModal()">
+        ${isPub?'🌐 Public':'🔒 Private'} <span style="opacity:0.5;font-size:9px">· tap to toggle</span>
+      </span>
     </div>
     <div class="ms"><div class="ms-l">Summary</div><div class="ms-box">${esc(n.summary)}</div></div>
     ${n.keyPoints?.length?`<div class="ms"><div class="ms-l">Key Points</div><div class="kps">${n.keyPoints.map(p=>`<div class="kp">${esc(p)}</div>`).join('')}</div></div>`:''}
