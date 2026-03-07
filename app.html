@@ -103,16 +103,23 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;disp
 .tab-switch{display:flex;padding:10px 12px;gap:5px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0}
 .tab-btn{flex:1;padding:8px;border-radius:var(--rs);border:1px solid transparent;background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:5px}
 .tab-btn.active{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
-/* txt-sec scrolls internally, doesn't push buttons out */
-.txt-sec,.img-sec{flex:1;display:flex;flex-direction:column;padding:12px;gap:10px;overflow-y:auto;min-height:0;scrollbar-width:thin}
-.txt-sec::-webkit-scrollbar,.img-sec::-webkit-scrollbar{width:3px}
-.txt-sec::-webkit-scrollbar-thumb,.img-sec::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+
+/* ── TEXT SECTION: flex:1 so it fills remaining sidebar space ── */
+.txt-sec{flex:1;display:flex;flex-direction:column;padding:12px;gap:10px;overflow:hidden;min-height:0}
+
+/* ── IMG SECTION: scrollable as before ── */
+.img-sec{flex:1;display:flex;flex-direction:column;padding:12px;gap:10px;overflow-y:auto;min-height:0;scrollbar-width:thin}
+.img-sec::-webkit-scrollbar{width:3px}
+.img-sec::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+
 .hidden{display:none!important}
 .sec-lbl{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-m);font-family:'JetBrains Mono',monospace;flex-shrink:0}
-/* textarea: fixed height, scrolls inside itself — never pushes layout */
-textarea.ti{flex:none;height:200px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text-b);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;padding:12px 13px;resize:none;outline:none;transition:border-color 0.2s,box-shadow 0.2s;width:100%;overflow-y:auto;scrollbar-width:thin}
+
+/* ── TEXTAREA: flex:1 fills all remaining space in .txt-sec ── */
+textarea.ti{flex:1;min-height:120px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);color:var(--text-b);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;padding:12px 13px;resize:none;outline:none;transition:border-color 0.2s,box-shadow 0.2s;width:100%;overflow-y:auto;scrollbar-width:thin}
 textarea.ti:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--ag);background:var(--surface3)}
 textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
+
 .paste-tip{display:flex;align-items:center;gap:8px;background:var(--ag2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text);flex-shrink:0}
 .paste-tip kbd{background:var(--surface2);border:1px solid var(--border-h);border-radius:5px;padding:1px 6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--a2)}
 .dropzone{flex:1;border:2px dashed var(--border-h);border-radius:var(--r);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;cursor:pointer;transition:all 0.2s;position:relative;overflow:hidden;background:var(--surface2);min-height:80px}
@@ -293,8 +300,9 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
   html,body{height:auto;overflow:auto}
   .app-body{grid-template-columns:1fr;overflow:visible}
   .sidebar{height:auto;border-right:none;border-bottom:1px solid var(--border)}
-  .txt-sec,.img-sec{max-height:none;overflow-y:visible}
-  textarea.ti{height:150px}
+  .txt-sec{overflow:visible;min-height:0}
+  .img-sec{max-height:none;overflow-y:visible}
+  textarea.ti{flex:none;min-height:160px;height:200px}
   .main-content{min-height:50vh;overflow:visible}
   .app-grid{grid-template-columns:1fr}
   .user-uname,.user-out{display:none}
@@ -346,11 +354,13 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
       </button>
     </div>
 
+    <!-- TEXT TAB: flex:1 so textarea stretches to fill -->
     <div class="txt-sec" id="txtSec">
       <div class="sec-lbl">Your notes</div>
       <textarea class="ti" id="txtArea" placeholder="I-paste mo dito ang notes mo...&#10;&#10;Pwedeng:&#10;• Raw class notes&#10;• Ideas at plans&#10;• Code snippets&#10;• Reminders&#10;• Kahit ano!&#10;&#10;Bahala na si AI mag-organize 😄"></textarea>
     </div>
 
+    <!-- IMAGE TAB -->
     <div class="img-sec hidden" id="imgSec">
       <div class="paste-tip">📋 Press <kbd>Ctrl+V</kbd> to paste image</div>
       <div class="dropzone" id="dz">
@@ -523,7 +533,7 @@ function getCatPill(cat){const s=getCatStyle(cat);return s.pill?`class="cpill ${
 function getCatEmoji(cat){return getCatStyle(cat).emoji||'🏷️';}
 
 // ============================================================
-// AI PROMPT — no obvious/redundant content
+// AI PROMPT
 // ============================================================
 function buildSysPrompt(){
   return`Ikaw ay isang expert notes organizer. Mag-return ng PURE JSON ONLY — walang markdown backticks, walang preamble, walang extra text.
@@ -547,37 +557,91 @@ JSON FORMAT (STRICT — sundin ito):
 }
 
 // ============================================================
-// INPUT
+// INPUT HANDLERS
 // ============================================================
-function switchTab(t){tab=t;document.getElementById('tbText').classList.toggle('active',t==='text');document.getElementById('tbImg').classList.toggle('active',t==='img');document.getElementById('txtSec').classList.toggle('hidden',t!=='text');document.getElementById('imgSec').classList.toggle('hidden',t!=='img');}
+function switchTab(t){
+  tab=t;
+  document.getElementById('tbText').classList.toggle('active',t==='text');
+  document.getElementById('tbImg').classList.toggle('active',t==='img');
+  document.getElementById('txtSec').classList.toggle('hidden',t!=='text');
+  document.getElementById('imgSec').classList.toggle('hidden',t!=='img');
+}
 function onFile(e){const f=e.target.files[0];if(f)loadImg(f);}
-function loadImg(file){const r=new FileReader();r.onload=ev=>{b64=ev.target.result.split(',')[1];document.getElementById('pimg').src=ev.target.result;document.getElementById('pname').textContent=file.name;document.getElementById('ip').style.display='block';document.getElementById('dz').style.display='none';};r.readAsDataURL(file);}
-function clearImg(){b64=null;document.getElementById('ip').style.display='none';document.getElementById('dz').style.display='flex';document.getElementById('fi').value='';}
+function loadImg(file){
+  const r=new FileReader();
+  r.onload=ev=>{
+    b64=ev.target.result.split(',')[1];
+    document.getElementById('pimg').src=ev.target.result;
+    document.getElementById('pname').textContent=file.name;
+    document.getElementById('ip').style.display='block';
+    document.getElementById('dz').style.display='none';
+  };
+  r.readAsDataURL(file);
+}
+function clearImg(){
+  b64=null;
+  document.getElementById('ip').style.display='none';
+  document.getElementById('dz').style.display='flex';
+  document.getElementById('fi').value='';
+}
 const dz=document.getElementById('dz');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
 dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
-dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');const f=e.dataTransfer.files[0];if(f?.type.startsWith('image/'))loadImg(f);});
-document.addEventListener('paste',e=>{for(const item of e.clipboardData?.items||[]){if(item.type.startsWith('image/')){const f=item.getAsFile();if(!f)continue;switchTab('img');loadImg(f);showToast('📋 Image pasted!');break;}}});
-function setVisibility(v){noteVisibility=v;document.getElementById('vOptPub').className='vis-opt'+(v==='public'?' active-pub':'');document.getElementById('vOptPriv').className='vis-opt'+(v==='private'?' active-priv':'');}
-function setVisFilt(v,btn){visFilt=v;['vfAll','vfPub','vfPriv'].forEach(id=>document.getElementById(id).className='vfb');if(v==='all')btn.classList.add('on-all');else if(v==='public')btn.classList.add('on-pub');else btn.classList.add('on-priv');renderApp();}
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('over');
+  const f=e.dataTransfer.files[0];
+  if(f?.type.startsWith('image/'))loadImg(f);
+});
+document.addEventListener('paste',e=>{
+  for(const item of e.clipboardData?.items||[]){
+    if(item.type.startsWith('image/')){
+      const f=item.getAsFile();if(!f)continue;
+      switchTab('img');loadImg(f);showToast('📋 Image pasted!');break;
+    }
+  }
+});
+function setVisibility(v){
+  noteVisibility=v;
+  document.getElementById('vOptPub').className='vis-opt'+(v==='public'?' active-pub':'');
+  document.getElementById('vOptPriv').className='vis-opt'+(v==='private'?' active-priv':'');
+}
+function setVisFilt(v,btn){
+  visFilt=v;
+  ['vfAll','vfPub','vfPriv'].forEach(id=>document.getElementById(id).className='vfb');
+  if(v==='all')btn.classList.add('on-all');
+  else if(v==='public')btn.classList.add('on-pub');
+  else btn.classList.add('on-priv');
+  renderApp();
+}
 
 // ============================================================
 // PROCESS
 // ============================================================
 async function process(){
   if(!window._currentUser){showToast('⚠️ Log in first!');return;}
-  if(tab==='text'){const t=document.getElementById('txtArea').value.trim();if(!t)return showToast('⚠️ Mag-paste muna ng notes!');await callGroq(t);}
-  else{if(!b64)return showToast('⚠️ Mag-upload muna ng image!');await callGroqVision(b64);}
+  if(tab==='text'){
+    const t=document.getElementById('txtArea').value.trim();
+    if(!t)return showToast('⚠️ Mag-paste muna ng notes!');
+    await callGroq(t);
+  }else{
+    if(!b64)return showToast('⚠️ Mag-upload muna ng image!');
+    await callGroqVision(b64);
+  }
 }
+
 function setLoading(on,msg='AI is thinking...'){
   const btn=document.getElementById('pb'),bar=document.getElementById('lbar');
   btn.disabled=on;btn.style.display=on?'none':'flex';bar.classList.toggle('on',on);
   document.getElementById('lbar-txt').textContent=msg;
 }
+
 async function callGroq(text){
   setLoading(true,'AI is organizing...');
   try{
-    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+text}]})});
+    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      model:'llama-3.3-70b-versatile',max_tokens:1800,
+      messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+text}]
+    })});
     const data=await res.json();
     if(data.error)throw new Error(data.error.message);
     const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
@@ -588,21 +652,32 @@ async function callGroq(text){
   }catch(err){console.error(err);showToast('⚠️ '+err.message);}
   setLoading(false);
 }
+
 async function callGroqVision(imgB64){
   setLoading(true,'AI is reading image...');
   try{
-    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imgB64}`}},{type:'text',text:buildSysPrompt()+'\n\nBasahin at i-organize ang notes sa image.'}]}]})});
+    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,
+      messages:[{role:'user',content:[
+        {type:'image_url',image_url:{url:`data:image/jpeg;base64,${imgB64}`}},
+        {type:'text',text:buildSysPrompt()+'\n\nBasahin at i-organize ang notes sa image.'}
+      ]}]
+    })});
     const data=await res.json();
     if(data.error)throw new Error(data.error.message);
     const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
     const p=JSON.parse(raw);
-    await saveNote(p,'img','[image]');clearImg();
+    // ── Pass the base64 image so it gets saved to Firebase ──
+    window._pendingImgB64=imgB64;
+    await saveNote(p,'img','[image]');
+    window._pendingImgB64=null;
+    clearImg();
     showToast(`✦ Image saved [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   }catch(err){console.error(err);showToast('⚠️ '+err.message);}
   setLoading(false);
 }
+
 async function saveNote(p,source,rawNote=''){
-  // Sanitize — ensure correct types regardless of what AI returned
   function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,val])=>k+': '+val).join('\n');return String(v);}
   function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
   const note={
@@ -617,13 +692,15 @@ async function saveNote(p,source,rawNote=''){
     isPublic:noteVisibility==='public',
     date:new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}),
     author:window._currentUser?.displayName||window._currentUser?.email||'Anonymous',
+    // ── Save base64 image data to Firebase for image notes ──
+    imageData:source==='img'?(window._pendingImgB64||''):'',
   };
   if(window._db&&window._push&&window._ref){
     try{await window._push(window._ref(window._db,'notes'),note);}
     catch(e){console.error(e);window.allNotes.unshift(note);renderApp();}
   }else{window.allNotes.unshift(note);renderApp();}
   // Reset filters so new note is always visible
-  appFilt='ALL'; visFilt='all';
+  appFilt='ALL';visFilt='all';
   document.querySelectorAll('#app-filters .fb').forEach(b=>b.classList.remove('on'));
   const allBtn=document.querySelector('#app-filters .fb');if(allBtn)allBtn.classList.add('on');
   ['vfAll','vfPub','vfPriv'].forEach(id=>document.getElementById(id)?.classList.remove('on-all','on-pub','on-priv'));
@@ -638,9 +715,15 @@ async function toggleNoteVisibility(fbKey,currentIsPublic,e){
   if(e)e.stopPropagation();
   const newVal=!currentIsPublic;
   if(window._db&&window._update&&window._ref&&fbKey){
-    try{await window._update(window._ref(window._db,`notes/${fbKey}`),{isPublic:newVal});showToast(newVal?'🌐 Set to Public':'🔒 Set to Private');}
-    catch(err){console.error(err);showToast('⚠️ Update failed');}
-  }else{const n=window.allNotes.find(x=>x.fbKey===fbKey);if(n){n.isPublic=newVal;renderApp();}showToast(newVal?'🌐 Set to Public':'🔒 Set to Private');}
+    try{
+      await window._update(window._ref(window._db,`notes/${fbKey}`),{isPublic:newVal});
+      showToast(newVal?'🌐 Set to Public':'🔒 Set to Private');
+    }catch(err){console.error(err);showToast('⚠️ Update failed');}
+  }else{
+    const n=window.allNotes.find(x=>x.fbKey===fbKey);
+    if(n){n.isPublic=newVal;renderApp();}
+    showToast(newVal?'🌐 Set to Public':'🔒 Set to Private');
+  }
 }
 
 // ============================================================
@@ -663,8 +746,15 @@ function buildAppFilters(){
   const cats=[...new Set(window.allNotes.map(n=>n.category).filter(Boolean))].sort();
   const wrap=document.getElementById('app-filters');
   wrap.innerHTML=`<button class="fb ${appFilt==='ALL'?'on':''}" onclick="setAppF('ALL',this)">All</button>`;
-  cats.forEach(c=>{const btn=document.createElement('button');btn.className='fb'+(appFilt===c?' on':'');btn.textContent=getCatEmoji(c)+' '+c;btn.onclick=function(){setAppF(c,this);};wrap.appendChild(btn);});
+  cats.forEach(c=>{
+    const btn=document.createElement('button');
+    btn.className='fb'+(appFilt===c?' on':'');
+    btn.textContent=getCatEmoji(c)+' '+c;
+    btn.onclick=function(){setAppF(c,this);};
+    wrap.appendChild(btn);
+  });
 }
+
 function renderApp(){
   buildAppFilters();
   const g=document.getElementById('app-grid');if(!g)return;
@@ -672,11 +762,19 @@ function renderApp(){
   if(visFilt==='public')list=list.filter(n=>n.isPublic===true);
   else if(visFilt==='private')list=list.filter(n=>n.isPublic!==true);
   if(searchQ)list=list.filter(n=>[n.title,n.summary,n.organizedContent,n.category].some(s=>(s||'').toLowerCase().includes(searchQ)));
-  if(!list.length){g.innerHTML=`<div class="empty"><div class="empty-ico">${searchQ?'🔍':'📋'}</div><div class="empty-t">${searchQ?'Walang nahanap':'No notes here'}</div><div class="empty-s">${searchQ?`No results for "${searchQ}"`:'Wala pang notes dito'}</div></div>`;return;}
+  if(!list.length){
+    g.innerHTML=`<div class="empty"><div class="empty-ico">${searchQ?'🔍':'📋'}</div><div class="empty-t">${searchQ?'Walang nahanap':'No notes here'}</div><div class="empty-s">${searchQ?`No results for "${searchQ}"`:'Wala pang notes dito'}</div></div>`;
+    return;
+  }
   g.innerHTML=list.map(n=>{
     const isPub=n.isPublic===true;
+    // Show image thumbnail on card if it's an image note with saved data
+    const thumbHtml=n.source==='img'&&n.imageData
+      ?`<div style="margin:-18px -18px 14px;border-bottom:1px solid var(--border);overflow:hidden;border-radius:var(--r) var(--r) 0 0"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;height:90px;object-fit:cover;display:block"></div>`
+      :'';
     return`<div class="anc" onclick="openView('${n.fbKey||n.id}')">
       <div class="nc-stripe" style="background:${getCatStripe(n.category)}"></div>
+      ${thumbHtml}
       <div class="nc-top">
         <span ${getCatPill(n.category)}>${getCatEmoji(n.category)} ${n.category}</span>
         <span class="nc-date">${n.date||''}</span>
@@ -694,10 +792,10 @@ function renderApp(){
     </div>`;
   }).join('');
 }
-// str() — always returns a safe string regardless of what Firebase stored
+
 function str(v){if(v==null)return'';if(typeof v==='string')return v;if(Array.isArray(v))return v.map(str).join('\n');if(typeof v==='object')return JSON.stringify(v);return String(v);}
 function esc(s){var safe=str(s);return safe.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-// Returns a meaningful title — falls back to first line of rawNote if title is blank/default
+
 function displayTitle(n){
   const t=str(n.title).trim();
   const bad=['','walang laman','untitled','no title'];
@@ -707,21 +805,19 @@ function displayTitle(n){
   }
   return t||'Untitled';
 }
-// Card shows first keyPoint (short, punchy). Falls back to summary then rawNote preview.
+
 function displaySummary(n){
-  // Try first keyPoint — should be 3-7 words
   const kps=Array.isArray(n.keyPoints)?n.keyPoints:[];
   const firstKP=kps.map(k=>str(k).trim()).find(k=>k.length>0&&k.length<120);
   if(firstKP)return firstKP;
-  // Fallback to summary if meaningful
   const s=str(n.summary).trim();
   const bad=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
   if(!bad.includes(s.toLowerCase())&&s)return s.slice(0,120);
-  // Last resort: rawNote first line
   const raw=str(n.rawNote).trim();
   if(raw){const lines=raw.split('\n').filter(l=>l.trim());return lines[0].slice(0,100);}
   return'';
 }
+
 function setAppF(f,btn){appFilt=f;document.querySelectorAll('#app-filters .fb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');renderApp();}
 function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 
@@ -743,31 +839,34 @@ function renderOrgContent(raw){
   }
   return html;
 }
+
 function switchViewTab(t){
   currentViewTab=t;
   document.getElementById('mvt-notes').classList.toggle('on',t==='notes');
   document.getElementById('mvt-summary').classList.toggle('on',t==='summary');
   renderViewBody();
 }
+
 function renderViewBody(){
   const n=currentViewNote;if(!n)return;
   const body=document.getElementById('mv-body');
   if(currentViewTab==='notes'){
-    // Show rawNote (user's actual input). Fallback to organizedContent for older notes.
+    // Show saved image if this is an image note
+    const imgHtml=n.imageData
+      ?`<div style="margin-bottom:14px;border-radius:10px;overflow:hidden;border:1px solid var(--border)"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;display:block;max-height:340px;object-fit:contain;background:var(--surface2)"></div>`
+      :'';
     const display=str(n.rawNote)||str(n.organizedContent);
-    const isEmpty=!display.trim();
+    const isEmpty=!display.trim()||display==='[image]';
     const copyBtn=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onclick="copyNotes()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>`;
     const noteBox=isEmpty
-      ?`<div style="color:var(--text-m);font-style:italic;font-size:13px;text-align:center;padding:30px 0">Walang laman</div>`
+      ?`<div style="color:var(--text-m);font-style:italic;font-size:13px;text-align:center;padding:30px 0">Walang text content</div>`
       :`<div style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.85;color:var(--text-b);background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">${esc(display)}</div>`;
-    body.innerHTML=copyBtn+noteBox;
+    body.innerHTML=imgHtml+copyBtn+noteBox;
   }else{
-    // Normalize keyPoints — handle array, object, string, or null
     let kps=[];
     if(Array.isArray(n.keyPoints)){kps=n.keyPoints.map(k=>str(k)).filter(k=>k.trim());}
     else if(n.keyPoints&&typeof n.keyPoints==='object'){kps=Object.values(n.keyPoints).map(str).filter(k=>k.trim());}
     else if(typeof n.keyPoints==='string'&&n.keyPoints.trim()){kps=[n.keyPoints];}
-    // Normalize summary
     const summaryText=str(n.summary).trim();
     const badSummary=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
     const summaryDisplay=badSummary.includes(summaryText.toLowerCase())
@@ -779,6 +878,7 @@ function renderViewBody(){
     body.innerHTML=`<div class="vs"><div class="vs-l">&#x1F4A1; Summary</div><div class="vs-box">${summaryDisplay}</div></div>${kpHtml}`;
   }
 }
+
 function copyNotes(){
   const n=currentViewNote;if(!n)return;
   const text=str(n.rawNote)||str(n.organizedContent);
@@ -788,6 +888,7 @@ function copyNotes(){
     showToast('Copied!');
   });
 }
+
 function openView(key){
   const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
   if(!n)return;
@@ -818,9 +919,13 @@ function openEdit(key){
   const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
   if(!n)return;
   editingKey=key;
-  // Show rawNote if available, otherwise fall back to organizedContent for older notes
   const rawVal=str(n.rawNote)||str(n.organizedContent);
+  // Show image preview in edit modal if it's an image note
+  const imgPreview=n.source==='img'&&n.imageData
+    ?`<div class="ef"><div class="ef-l">Original Image</div><div style="border-radius:var(--rs);overflow:hidden;border:1px solid var(--border)"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;max-height:160px;object-fit:contain;display:block;background:var(--surface2)"></div></div>`
+    :'';
   document.getElementById('me-body').innerHTML=`
+    ${imgPreview}
     <div class="ef"><div class="ef-l">Title</div><input class="ef-in" id="ef-title" value="${esc(n.title)}"></div>
     <div class="ef-row">
       <div class="ef"><div class="ef-l">Category</div><input class="ef-in" id="ef-cat" value="${esc(n.category)}" placeholder="IT, STUDY, CRYPTO..."></div>
@@ -833,7 +938,7 @@ function openEdit(key){
     </div>
     <div class="ef" style="flex:1;display:flex;flex-direction:column">
       <div class="ef-l">Your Notes</div>
-      <textarea class="ef-in ef-ta tall" id="ef-rawnote" style="flex:1;min-height:220px">${esc(rawVal)}</textarea>
+      <textarea class="ef-in ef-ta tall" id="ef-rawnote" style="flex:1;min-height:220px">${esc(rawVal==='[image]'?'':rawVal)}</textarea>
     </div>
     <div style="background:var(--ag2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--text-m);display:flex;align-items:center;gap:8px;margin-top:4px">
       <span>🤖</span><span>I-save mo — mag-re-organize si AI gamit ang edited notes mo.</span>
@@ -842,16 +947,7 @@ function openEdit(key){
   document.getElementById('ov-edit').classList.add('on');
 }
 function closeEdit(){document.getElementById('ov-edit').classList.remove('on');editingKey=null;}
-function addKP(){
-  const list=document.getElementById('kp-list');
-  const idx=list.children.length;
-  const row=document.createElement('div');
-  row.className='kp-edit-row';row.id=`kp-row-${idx}`;
-  row.innerHTML=`<input class="ef-in" id="kp-${idx}" value=""><button class="kp-rm" onclick="removeKP(${idx})" title="Remove">×</button>`;
-  list.appendChild(row);
-  row.querySelector('input').focus();
-}
-function removeKP(idx){const row=document.getElementById(`kp-row-${idx}`);if(row)row.remove();}
+
 async function saveEdit(){
   if(!editingKey)return;
   const n=window.allNotes.find(x=>(x.fbKey===editingKey||String(x.id)===String(editingKey)));
@@ -864,18 +960,19 @@ async function saveEdit(){
   btn.disabled=true;
   btn.innerHTML='<span style="animation:blk 1s infinite alternate;display:inline-block">🤖 Re-organizing...</span>';
   try{
-    // Re-run AI on edited rawNote
     function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,vv])=>k+': '+vv).join('\n');return String(v);}
     function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
     let updates={title,category,isPublic,rawNote};
     if(rawNote){
-      const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+rawNote}]})});
+      const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',max_tokens:1800,
+        messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+rawNote}]
+      })});
       const data=await res.json();
       if(!data.error){
         const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
         try{
           const p=JSON.parse(raw);
-          // Use AI category if user didn't change it manually, else keep user's
           const aiCat=(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_');
           updates={
             title:title||(ensureStr(p.title)||'Untitled'),
@@ -909,13 +1006,20 @@ function doSignOut(){if(!confirm('Sign out?'))return;window._signOut().then(()=>
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeView();closeEdit();}});
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200);}
 
-// PWA
+/* PWA */
 function showStrip(){document.getElementById('install-strip').classList.add('show');}
 function hideStrip(){document.getElementById('install-strip').classList.remove('show');}
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;if(!sessionStorage.getItem('installDismissed'))showStrip();});
-async function installApp(){if(deferredPrompt){deferredPrompt.prompt();const{outcome}=await deferredPrompt.userChoice;deferredPrompt=null;hideStrip();}else{showToast(/iPhone|iPad|iPod/i.test(navigator.userAgent)?'📲 Tap Share → Add to Home Screen':'📲 Open browser menu → Install App');setTimeout(hideStrip,500);}}
+async function installApp(){
+  if(deferredPrompt){deferredPrompt.prompt();const{outcome}=await deferredPrompt.userChoice;deferredPrompt=null;hideStrip();}
+  else{showToast(/iPhone|iPad|iPod/i.test(navigator.userAgent)?'📲 Tap Share → Add to Home Screen':'📲 Open browser menu → Install App');setTimeout(hideStrip,500);}
+}
 function dismissInstall(){sessionStorage.setItem('installDismissed','1');hideStrip();}
-(function(){const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);const isStandalone=window.matchMedia('(display-mode:standalone)').matches||navigator.standalone;if(isMobile&&!isStandalone&&!sessionStorage.getItem('installDismissed'))setTimeout(showStrip,1500);})();
+(function(){
+  const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const isStandalone=window.matchMedia('(display-mode:standalone)').matches||navigator.standalone;
+  if(isMobile&&!isStandalone&&!sessionStorage.getItem('installDismissed'))setTimeout(showStrip,1500);
+})();
 window.addEventListener('appinstalled',()=>{showToast('✦ App installed!');hideStrip();});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 
