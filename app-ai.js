@@ -29,7 +29,29 @@ function buildMemCtx() {
 }
 
 function buildAIInstructorPrompt() {
+  // Live notes — only current user's, with REAL fbKeys
+  const myNotes = (window.allNotes || []).filter(n => isMyNote(n));
+  const notesBlock = myNotes.length
+    ? myNotes.map((n, i) => {
+        const safeTitle = String(n.title||'').replace(/"/g,"'").slice(0,60);
+        const safeRaw   = String(n.rawNote||'').replace(/\n/g,' ').replace(/"/g,"'").slice(0,100);
+        return `[${i}] fbKey="${n.fbKey}" | title="${safeTitle}" | cat="${n.category}" | public=${n.isPublic===true}${safeRaw ? ` | raw="${safeRaw}"` : ''}${n.imageData?' | hasImage=true':''}`;
+      }).join('\n')
+    : '(wala pang notes)';
+
+  // Live memory
+  const memEntries = Object.entries(aiMemory || {});
+  const memBlock = memEntries.length
+    ? memEntries.map(([k,v]) => {
+        const safeSum = String(v.summary||'').slice(0,80).replace(/"/g,"'");
+        const ruleStr = v.categoryRule ? ` | RULE: "${v.categoryRule}"` : '';
+        return `key="${k}" | title="${v.title||''}" | cat="${v.category||''}" | summary="${safeSum}"${ruleStr}`;
+      }).join('\n')
+    : '(walang memory entries)';
+
   return `Ikaw ay ang AI Instructor ng Notes AI app. INSTRUCTOR MODE KA LANG.
+
+PINAKA-IMPORTANTENG RULE: Ang mga fbKey sa ACTION JSON ay DAPAT KOPYA NANG EKSAKTO mula sa listahan ng notes sa ibaba. Huwag mag-imbento o mag-palit ng kahit isang character.
 
 RULES:
 1. LAGING magtanong o mag-confirm bago gumawa ng kahit anong action sa notes.
@@ -40,31 +62,28 @@ RULES:
 6. Maikli at malinaw ang sagot. Filipino/English. Max 6 sentences.
 7. Para sa actions, gamitin ang [ACTION]{...}[/ACTION] tag sa DULO ng message.
 
-KAYA MONG GAWIN:
-- Fix/patch notes: baguhin ang category, title, summary, keyPoints, visibility ng specific notes
-- Bulk-fix: ayusin ang maraming notes sabay-sabay base sa pattern
-- Category rules: mag-save sa memory ng rule tulad ng "kapag may keyword X, category dapat Y"
-- Memory management: add/edit/remove/clear memory entries
-- Notes overview: i-analyze ang lahat ng notes at sabihin kung may mali
-
 ACTION JSON FORMATS:
-fix_note: {"type":"fix_note","fbKey":"EXACT_fbKey_from_notes_list","updates":{"category":"NEW_CAT"},"reOrganize":true}
-  reOrganize:true = AI re-processes the note content with correct category context (ALWAYS use this when fixing category)
-  reOrganize:false = just patch the field, no content re-org (only for title/visibility changes)
-
-bulk_fix: {"type":"bulk_fix","targets":[{"fbKey":"exact_key","updates":{"category":"CORRECT_CAT"}},...],"reason":"bakit mali ang dati","reOrganize":true}
-  reOrganize:true = each note gets AI re-organized with its correct category (use this for category fixes)
-
-add_memory: {"type":"add_memory","data":{"key":"unique_key","title":"Short name","category":"CAT","summary":"...","categoryRule":"Kapag may X content, category dapat Y"}}
-update_memory: {"type":"update_memory","data":{"key":"existing_key","title":"...","category":"...","categoryRule":"..."}}
-remove_memory: {"type":"remove_memory","data":{"key":"memory_key"}}
+fix_note:  {"type":"fix_note","fbKey":"<KOPYA_NG_FBKEY_MULA_SA_LIST>","updates":{"category":"NEW_CAT"},"reOrganize":true}
+bulk_fix:  {"type":"bulk_fix","targets":[{"fbKey":"<KOPYA_NG_FBKEY>","updates":{"category":"CORRECT_CAT"}},...], "reason":"...","reOrganize":true}
+add_memory:    {"type":"add_memory","data":{"key":"unique_key","title":"...","category":"CAT","summary":"...","categoryRule":"..."}}
+update_memory: {"type":"update_memory","data":{"key":"<KOPYA_NG_MEMORY_KEY>","title":"...","category":"...","categoryRule":"..."}}
+remove_memory: {"type":"remove_memory","data":{"key":"<KOPYA_NG_MEMORY_KEY>"}}
 clear_all_memory: {"type":"clear_all_memory"}
 
-categoryRule examples: "Kapag may code/programming/debugging — IT", "Kapag may client/freelance/deadline — FREELANCE"
-Rules ay AUTOMATIC na gagamitin ng AI organizer sa lahat ng susunod na notes.
+IMPORTANT:
+- fix_note / bulk_fix: ilagay ang "DAPAT I-CONFIRM:" sa sagot bago ang [ACTION] tag.
+- memory-only actions: pwede direkta ang [ACTION].
+- reOrganize:true = re-process ang content ng note (PALAGI itong gamitin para sa category fixes).
 
-IMPORTANT: Kapag fix_note o bulk_fix, ilagay muna ang "DAPAT I-CONFIRM:" sa sagot bago ang [ACTION] tag.
-Para sa memory-only actions (add/update/remove), pwede direkta ang [ACTION] — walang confirm needed.`;
+══════════════════════════════════════════
+USER NOTES (${myNotes.length} total) — GAMITIN ANG EXACT fbKey DITO:
+══════════════════════════════════════════
+${notesBlock}
+
+══════════════════════════════════════════
+AI MEMORY (${memEntries.length} entries) — GAMITIN ANG EXACT key DITO:
+══════════════════════════════════════════
+${memBlock}`;
 }
 
 // ── Execute action ───────────────────────────────────────────
@@ -400,8 +419,103 @@ function renderQuickPrompts() {
   });
 }
 
+// ── Expand / fullscreen ──────────────────────────────────────
+let aiPanelExpanded = false;
+
+function injectAIPanelStyles() {
+  if (document.getElementById('ai-panel-expand-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'ai-panel-expand-styles';
+  style.textContent = `
+    /* Expand button */
+    .ai-panel-expand {
+      width: 26px; height: 26px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; cursor: pointer; font-size: 11px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-m); transition: all 0.2s; flex-shrink: 0;
+    }
+    .ai-panel-expand:hover { border-color: var(--a); color: var(--a2); background: var(--ag); }
+
+    /* Expanded (fullscreen-ish) state */
+    .ai-panel.expanded {
+      bottom: 0 !important;
+      right: 0 !important;
+      width: 100vw !important;
+      max-width: 100vw !important;
+      height: 100vh !important;
+      max-height: 100vh !important;
+      border-radius: 0 !important;
+      transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+
+    /* Medium expanded — for desktop: wide panel */
+    @media (min-width: 769px) {
+      .ai-panel.expanded {
+        bottom: 0 !important;
+        right: 0 !important;
+        top: 56px !important; /* below nav */
+        width: 480px !important;
+        max-width: 480px !important;
+        height: calc(100vh - 56px) !important;
+        max-height: calc(100vh - 56px) !important;
+        border-radius: 0 !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: none !important;
+      }
+    }
+
+    /* Panel head button group */
+    .ai-panel-head-btns {
+      display: flex; align-items: center; gap: 6px;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function toggleAIPanelExpand() {
+  const panel = document.getElementById('ai-chat-panel');
+  const btn = document.getElementById('ai-expand-btn');
+  if (!panel || !btn) return;
+  aiPanelExpanded = !aiPanelExpanded;
+  panel.classList.toggle('expanded', aiPanelExpanded);
+  // Swap icon: expand ↔ shrink
+  btn.innerHTML = aiPanelExpanded
+    ? `<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>`
+    : `<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
+  btn.title = aiPanelExpanded ? 'Paliitin' : 'Palakihin';
+  scrollChatToBottom();
+}
+
+// Patch the panel header to add expand + button group
+function patchAIPanelHeader() {
+  if (document.getElementById('ai-expand-btn')) return; // already patched
+  const head = document.querySelector('.ai-panel-head');
+  if (!head) return;
+
+  // Wrap existing close button in a group div
+  const closeBtn = head.querySelector('.ai-panel-close');
+  if (!closeBtn) return;
+
+  const expandBtn = document.createElement('button');
+  expandBtn.className = 'ai-panel-expand';
+  expandBtn.id = 'ai-expand-btn';
+  expandBtn.title = 'Palakihin';
+  expandBtn.innerHTML = `<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
+  expandBtn.addEventListener('click', toggleAIPanelExpand);
+
+  const group = document.createElement('div');
+  group.className = 'ai-panel-head-btns';
+  closeBtn.parentNode.insertBefore(group, closeBtn);
+  group.appendChild(expandBtn);
+  group.appendChild(closeBtn);
+}
+
 // ── Panel open/close ─────────────────────────────────────────
 function openAIChat() {
+  injectAIPanelStyles();
+  patchAIPanelHeader();
   aiChatOpen = true;
   document.getElementById('ai-chat-panel')?.classList.add('open');
   document.getElementById('ai-fab')?.classList.add('active');
@@ -422,8 +536,16 @@ function openAIChat() {
 
 function closeAIChat() {
   aiChatOpen = false;
-  document.getElementById('ai-chat-panel')?.classList.remove('open');
+  aiPanelExpanded = false;
+  const panel = document.getElementById('ai-chat-panel');
+  panel?.classList.remove('open', 'expanded');
   document.getElementById('ai-fab')?.classList.remove('active');
+  // Reset expand button icon
+  const btn = document.getElementById('ai-expand-btn');
+  if (btn) {
+    btn.innerHTML = `<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>`;
+    btn.title = 'Palakihin';
+  }
 }
 
 function toggleAIChat() { if (aiChatOpen) closeAIChat(); else openAIChat(); }
@@ -440,4 +562,9 @@ document.addEventListener('DOMContentLoaded', () => {
     this.style.height=Math.min(this.scrollHeight,120)+'px';
   });
 });
-document.addEventListener('keydown', e => { if (e.key==='Escape'&&aiChatOpen) closeAIChat(); });
+document.addEventListener('keydown', e => {
+  if (e.key==='Escape') {
+    if (aiPanelExpanded) { toggleAIPanelExpand(); return; } // shrink first on Escape
+    if (aiChatOpen) closeAIChat();
+  }
+});
