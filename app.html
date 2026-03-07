@@ -729,32 +729,29 @@ function renderViewBody(){
   const n=currentViewNote;if(!n)return;
   const body=document.getElementById('mv-body');
   if(currentViewTab==='notes'){
-    // Show exactly what was stored — sanitize to string first, never show raw JSON objects
-    const rawContent=str(n.organizedContent);
-    body.innerHTML=`
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-        <button onclick="copyNotes()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s" onmouseover="this.style.background='var(--ag2)'" onmouseout="this.style.background='var(--ag)'">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          Copy Notes
-        </button>
-      </div>
-      <div class="org-content" id="org-content-display">${renderOrgContent(rawContent)}</div>`;
+    // Show rawNote (user's actual input). Fallback to organizedContent for older notes.
+    const display=str(n.rawNote)||str(n.organizedContent);
+    const isEmpty=!display.trim();
+    const copyBtn=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onclick="copyNotes()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>`;
+    const noteBox=isEmpty
+      ?`<div style="color:var(--text-m);font-style:italic;font-size:13px;text-align:center;padding:30px 0">Walang laman</div>`
+      :`<div style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.85;color:var(--text-b);background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">${esc(display)}</div>`;
+    body.innerHTML=copyBtn+noteBox;
   }else{
     const kps=Array.isArray(n.keyPoints)?n.keyPoints:(n.keyPoints?[str(n.keyPoints)]:[]);
     const kpHtml=kps.filter(Boolean).length
-      ?`<div class="vs"><div class="vs-l">🔑 Key Points</div><div class="kp-list">${kps.filter(Boolean).map(p=>`<div class="kp-item"><span class="kp-arrow">→</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
+      ?`<div class="vs"><div class="vs-l">&#x1F511; Key Points</div><div class="kp-list">${kps.filter(Boolean).map(p=>`<div class="kp-item"><span class="kp-arrow">&#x2192;</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
       :'';
-    body.innerHTML=`<div class="vs"><div class="vs-l">💡 Summary</div><div class="vs-box">${esc(n.summary)}</div></div>${kpHtml}`;
+    body.innerHTML=`<div class="vs"><div class="vs-l">&#x1F4A1; Summary</div><div class="vs-box">${esc(n.summary)}</div></div>${kpHtml}`;
   }
 }
 function copyNotes(){
   const n=currentViewNote;if(!n)return;
-  const text=str(n.organizedContent);
-  navigator.clipboard.writeText(text).then(()=>showToast('📋 Copied to clipboard!')).catch(()=>{
-    // fallback
+  const text=str(n.rawNote)||str(n.organizedContent);
+  navigator.clipboard.writeText(text).then(()=>showToast('Copied!')).catch(()=>{
     const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
     document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
-    showToast('📋 Copied!');
+    showToast('Copied!');
   });
 }
 function openView(key){
