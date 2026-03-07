@@ -526,24 +526,23 @@ function getCatEmoji(cat){return getCatStyle(cat).emoji||'🏷️';}
 // AI PROMPT — no obvious/redundant content
 // ============================================================
 function buildSysPrompt(){
-  return`Ikaw ay isang expert notes organizer. Mag-return ng PURE JSON ONLY — walang markdown backticks, walang preamble.
+  return`Ikaw ay isang expert notes organizer. Mag-return ng PURE JSON ONLY — walang markdown backticks, walang preamble, walang extra text.
 
-CRITICAL RULES para sa organizedContent:
-1. HUWAG mag-define ng obvious na bagay (halimbawa: kung "pag-try" ang topic, huwag ipaliwanag kung ano ang ibig sabihin ng "pag-try").
-2. HUWAG mag-restate ng header/title bilang explanation nito.
-3. Isulat LANG ang actual na facts, steps, formulas, code, dates, o specific na details na nasa notes.
-4. Kung maikli ang input, HUWAG palawakin ng walang substance. Mas mabuti pang maikli pero tama.
-5. Mag-focus sa USEFUL na impormasyon — kung ano ang actual na matututunan o gagamitin.
-6. Gumamit ng ## para sa headers, • para sa bullets. Kung prose ang mas angkop, prose lang.
-7. Taglish o Filipino okay.
+STRICT RULES:
+1. "title" — REQUIRED. Specific, max 8 words. Base sa actual content. HUWAG gumamit ng "Walang Laman", "Untitled", o generic na title.
+2. "summary" — REQUIRED. 1-2 sentences. Actual takeaway. HUWAG gumamit ng "Walang mahalagang impormasyon" o anumang generic na filler. Kahit maikli ang input, mag-summarize pa rin ng honestly.
+3. "keyPoints" — REQUIRED. 3-5 items. Bawat item ay 3-7 words lang — concise, specific na insight/fact/action. HINDI buong sentence. Example: "I-save muna bago mag-close" o "Firebase nag-istore ng realtime data".
+4. "organizedContent" — yung actual notes, organized. Walang obvious definitions, walang padding.
+5. HUWAG mag-hallucinate ng content na wala sa original input.
+6. Kahit isang salita lang ang input, mag-provide pa rin ng meaningful na title, summary, at keyPoints base sa context ng note.
 
-JSON FORMAT:
+JSON FORMAT (STRICT — sundin ito):
 {
-  "title": "Specific title na nagde-describe ng actual content (max 10 words)",
-  "category": "UPPERCASE single word — IT, STUDY, FREELANCE, CRYPTO, PERSONAL, HEALTH, BUSINESS, DESIGN, FOOD, FINANCE, SCIENCE, ART, o pinaka-angkop na category",
-  "summary": "1-2 sentence — actual takeaway ng content, hindi definition ng topic",
-  "keyPoints": ["Specific fact/step/insight lang, max 5 items"],
-  "organizedContent": "Organized notes na puno ng actual substance. Walang obvious definitions."
+  "title": "...",
+  "category": "IT|STUDY|FREELANCE|CRYPTO|PERSONAL|HEALTH|BUSINESS|DESIGN|FOOD|FINANCE|SCIENCE|ART|OTHER",
+  "summary": "...",
+  "keyPoints": ["3-7 word insight 1", "3-7 word insight 2", "3-7 word insight 3"],
+  "organizedContent": "..."
 }${buildMemoryContext()}`;
 }
 
@@ -683,8 +682,8 @@ function renderApp(){
         <span class="nc-date">${n.date||''}</span>
         <span class="vis-badge ${isPub?'pub':'priv'}" title="Toggle" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">${isPub?'🌐 Public':'🔒 Private'}</span>
       </div>
-      <div class="nc-title">${esc(n.title)}</div>
-      <div class="nc-summary">${esc(n.summary)}</div>
+      <div class="nc-title">${esc(displayTitle(n))}</div>
+      <div class="nc-summary">${esc(displaySummary(n))}</div>
       <div class="anc-foot">
         <div class="anc-src">${n.source==='img'?'🖼️':'📄'} ${n.source==='img'?'Image':'Text'}${n.author?` · ${esc(n.author)}`:''}</div>
         <div class="anc-btns">
@@ -698,6 +697,31 @@ function renderApp(){
 // str() — always returns a safe string regardless of what Firebase stored
 function str(v){if(v==null)return'';if(typeof v==='string')return v;if(Array.isArray(v))return v.map(str).join('\n');if(typeof v==='object')return JSON.stringify(v);return String(v);}
 function esc(s){var safe=str(s);return safe.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Returns a meaningful title — falls back to first line of rawNote if title is blank/default
+function displayTitle(n){
+  const t=str(n.title).trim();
+  const bad=['','walang laman','untitled','no title'];
+  if(bad.includes(t.toLowerCase())){
+    const raw=str(n.rawNote).trim();
+    if(raw)return raw.split('\n')[0].slice(0,60)||(t||'Untitled');
+  }
+  return t||'Untitled';
+}
+// Card shows first keyPoint (short, punchy). Falls back to summary then rawNote preview.
+function displaySummary(n){
+  // Try first keyPoint — should be 3-7 words
+  const kps=Array.isArray(n.keyPoints)?n.keyPoints:[];
+  const firstKP=kps.map(k=>str(k).trim()).find(k=>k.length>0&&k.length<120);
+  if(firstKP)return firstKP;
+  // Fallback to summary if meaningful
+  const s=str(n.summary).trim();
+  const bad=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
+  if(!bad.includes(s.toLowerCase())&&s)return s.slice(0,120);
+  // Last resort: rawNote first line
+  const raw=str(n.rawNote).trim();
+  if(raw){const lines=raw.split('\n').filter(l=>l.trim());return lines[0].slice(0,100);}
+  return'';
+}
 function setAppF(f,btn){appFilt=f;document.querySelectorAll('#app-filters .fb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');renderApp();}
 function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 
@@ -738,11 +762,21 @@ function renderViewBody(){
       :`<div style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.85;color:var(--text-b);background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">${esc(display)}</div>`;
     body.innerHTML=copyBtn+noteBox;
   }else{
-    const kps=Array.isArray(n.keyPoints)?n.keyPoints:(n.keyPoints?[str(n.keyPoints)]:[]);
-    const kpHtml=kps.filter(Boolean).length
-      ?`<div class="vs"><div class="vs-l">&#x1F511; Key Points</div><div class="kp-list">${kps.filter(Boolean).map(p=>`<div class="kp-item"><span class="kp-arrow">&#x2192;</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
-      :'';
-    body.innerHTML=`<div class="vs"><div class="vs-l">&#x1F4A1; Summary</div><div class="vs-box">${esc(n.summary)}</div></div>${kpHtml}`;
+    // Normalize keyPoints — handle array, object, string, or null
+    let kps=[];
+    if(Array.isArray(n.keyPoints)){kps=n.keyPoints.map(k=>str(k)).filter(k=>k.trim());}
+    else if(n.keyPoints&&typeof n.keyPoints==='object'){kps=Object.values(n.keyPoints).map(str).filter(k=>k.trim());}
+    else if(typeof n.keyPoints==='string'&&n.keyPoints.trim()){kps=[n.keyPoints];}
+    // Normalize summary
+    const summaryText=str(n.summary).trim();
+    const badSummary=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
+    const summaryDisplay=badSummary.includes(summaryText.toLowerCase())
+      ?`<span style="color:var(--text-m);font-style:italic;font-size:13px">Walang summary — i-edit ang note para ma-regenerate ng AI.</span>`
+      :esc(summaryText);
+    const kpHtml=kps.length
+      ?`<div class="vs"><div class="vs-l">&#x1F511; Key Points</div><div class="kp-list">${kps.map(p=>`<div class="kp-item"><span class="kp-arrow">&#x2192;</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
+      :`<div class="vs"><div class="vs-l">&#x1F511; Key Points</div><div style="color:var(--text-m);font-style:italic;font-size:13px">Walang key points — i-edit ang note para ma-regenerate ng AI.</div></div>`;
+    body.innerHTML=`<div class="vs"><div class="vs-l">&#x1F4A1; Summary</div><div class="vs-box">${summaryDisplay}</div></div>${kpHtml}`;
   }
 }
 function copyNotes(){
@@ -763,7 +797,7 @@ function openView(key){
     <span ${getCatPill(n.category)} style="font-size:11px">${getCatEmoji(n.category)} ${n.category}</span>
     <span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.date||''}</span>
     ${n.author?`<span style="font-size:11px;color:var(--text-m)">· ${esc(n.author)}</span>`:''}`;
-  document.getElementById('mv-title').textContent=n.title;
+  document.getElementById('mv-title').textContent=displayTitle(n);
   document.getElementById('mv-vis-area').innerHTML=`
     <span class="vis-badge ${isPub?'pub':'priv'}" style="cursor:pointer;font-size:11px" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">
       ${isPub?'🌐 Public':'🔒 Private'}<span style="opacity:0.4;font-size:9px;margin-left:4px">· toggle</span>
