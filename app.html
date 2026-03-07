@@ -213,28 +213,139 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 @keyframes blk{from{opacity:0.4}to{opacity:1}}
 
 /* MAIN PANEL */
-.main-content{overflow-y:auto;padding:16px;background:var(--bg2)}
+.main-content{overflow-y:auto;padding:0;background:var(--bg2);display:flex;flex-direction:column}
 .main-content::-webkit-scrollbar{width:4px}
 .main-content::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
-.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-.fb{padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s}
+
+/* MAIN TABS */
+.main-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;padding:0 16px}
+.mtab{display:flex;align-items:center;gap:6px;padding:13px 16px;font-size:13px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;color:var(--text-m);background:none;border:none;border-bottom:2px solid transparent;transition:all 0.2s;position:relative}
+.mtab.active{color:var(--a2);border-bottom-color:var(--a2)}
+.mtab:hover:not(.active){color:var(--text-b)}
+.mtab-count{background:var(--ag);color:var(--a2);font-size:10px;font-weight:800;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center}
+.mtab.active .mtab-count{background:rgba(96,165,250,0.2)}
+
+/* TAB PANELS */
+.tab-panel{display:none;flex:1;padding:14px 16px;overflow-y:auto}
+.tab-panel.active{display:block}
+.tab-panel::-webkit-scrollbar{width:4px}
+.tab-panel::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+
+/* FILTER BAR */
+.filter-bar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;flex-wrap:wrap}
+.filters{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}
+.fb{padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap}
 .fb:hover{border-color:var(--border-h);color:var(--text)}
 .fb.on{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
-.vis-filter-row{display:flex;gap:6px;margin-bottom:10px}
-.vfb{padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:transparent;font-family:'Outfit',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;color:var(--text-m)}
-.vfb:hover{border-color:var(--border-h);color:var(--text-b)}
-.vfb.on-all{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
-.vfb.on-pub{background:rgba(34,211,238,0.1);border-color:rgba(34,211,238,0.3);color:var(--cyan)}
-.vfb.on-priv{background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.3);color:var(--purple)}
+.vis-pills{display:flex;gap:4px;flex-shrink:0}
+.vpill{padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;font-family:'Outfit',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.2s;color:var(--text-m)}
+.vpill:hover{border-color:var(--border-h);color:var(--text-b)}
+.vpill.on-all{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
+.vpill.on-pub{background:rgba(34,211,238,0.1);border-color:rgba(34,211,238,0.3);color:var(--cyan)}
+.vpill.on-priv{background:rgba(167,139,250,0.1);border-color:rgba(167,139,250,0.3);color:var(--purple)}
+
 .app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(220px,28vw,270px),1fr));gap:12px}
 
-/* SECTION DIVIDER — My Notes vs Community */
-.notes-sec-head{display:flex;align-items:center;gap:10px;margin:6px 0 12px}
-.nsh-lbl{font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;font-family:'JetBrains Mono',monospace;white-space:nowrap}
-.nsh-lbl.mine{color:var(--a2)}
-.nsh-lbl.global{color:var(--cyan)}
-.nsh-line{flex:1;height:1px;background:var(--border)}
-.nsh-cnt{font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace;flex-shrink:0}
+/* AI FAB */
+.ai-fab{
+  position:fixed;bottom:24px;right:24px;z-index:350;
+  width:52px;height:52px;border-radius:16px;
+  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
+  border:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 6px 28px rgba(59,130,246,0.5);
+  transition:all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  color:#fff;
+}
+.ai-fab:hover{transform:translateY(-3px) scale(1.06);box-shadow:0 10px 36px rgba(59,130,246,0.65)}
+.ai-fab:active{transform:scale(0.94)}
+.ai-fab .ai-fab-x{display:none;font-size:18px;font-weight:300;line-height:1}
+.ai-fab .ai-fab-ico{display:block;transition:all 0.2s}
+.ai-fab.active .ai-fab-ico{display:none}
+.ai-fab.active .ai-fab-x{display:block}
+.ai-fab.active{background:linear-gradient(135deg,#ef4444,#b91c1c);box-shadow:0 6px 28px rgba(239,68,68,0.4)}
+/* Pulse ring when not open */
+.ai-fab::after{content:'';position:absolute;inset:-4px;border-radius:20px;border:2px solid rgba(59,130,246,0.4);animation:fabring 2.5s ease-in-out infinite;pointer-events:none}
+@keyframes fabring{0%,100%{opacity:0;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+.ai-fab.active::after{display:none}
+
+/* AI CHAT PANEL */
+.ai-panel{
+  position:fixed;bottom:90px;right:24px;z-index:340;
+  width:360px;max-height:520px;
+  background:var(--surface);border:1px solid var(--border-h);
+  border-radius:20px;
+  display:flex;flex-direction:column;
+  box-shadow:0 24px 80px rgba(0,0,0,0.6);
+  transform:translateY(20px) scale(0.95);opacity:0;pointer-events:none;
+  transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+.ai-panel.open{transform:none;opacity:1;pointer-events:all}
+.ai-panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.ai-panel-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--text-b)}
+.ai-panel-dot{width:8px;height:8px;border-radius:50%;background:var(--a2);animation:mpulse 2s infinite;flex-shrink:0}
+.ai-panel-close{width:26px;height:26px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:var(--text-m);transition:all 0.2s}
+.ai-panel-close:hover{border-color:var(--red);color:var(--red)}
+.ai-chat-feed{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0;scrollbar-width:thin}
+.ai-chat-feed::-webkit-scrollbar{width:3px}
+.ai-chat-feed::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+
+/* Chat messages */
+.aicm{display:flex}
+.aicm-ai{justify-content:flex-start}
+.aicm-user{justify-content:flex-end}
+.aicm-bubble{
+  max-width:88%;padding:9px 13px;border-radius:14px;
+  font-size:12.5px;line-height:1.65;
+}
+.aicm-ai .aicm-bubble{background:var(--surface2);border:1px solid var(--border);color:var(--text-b);border-radius:4px 14px 14px 14px}
+.aicm-user .aicm-bubble{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;border-radius:14px 14px 4px 14px}
+
+/* Typing indicator */
+.aicm-typing{display:flex;align-items:center;gap:4px;padding:11px 14px}
+.aicm-typing span{width:6px;height:6px;border-radius:50%;background:var(--text-m);animation:tydot 1.2s ease-in-out infinite}
+.aicm-typing span:nth-child(2){animation-delay:0.2s}
+.aicm-typing span:nth-child(3){animation-delay:0.4s}
+@keyframes tydot{0%,80%,100%{transform:scale(0.7);opacity:0.4}40%{transform:scale(1);opacity:1}}
+
+/* Quick prompt chips */
+.ai-quick-prompts{display:flex;flex-wrap:wrap;gap:5px;padding:8px 12px;border-top:1px solid var(--border);flex-shrink:0}
+.ai-qp{
+  padding:4px 10px;border-radius:20px;
+  border:1px solid var(--border);background:var(--surface2);
+  color:var(--text-m);font-size:11px;font-weight:600;
+  cursor:pointer;font-family:'Outfit',sans-serif;
+  transition:all 0.18s;white-space:nowrap;
+}
+.ai-qp:hover{border-color:var(--a);color:var(--a2);background:var(--ag)}
+
+/* Chat input */
+.ai-chat-input-wrap{
+  display:flex;align-items:flex-end;gap:8px;
+  padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;
+}
+.ai-chat-input{
+  flex:1;background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;color:var(--text-b);
+  font-family:'Outfit',sans-serif;font-size:13px;
+  padding:9px 12px;resize:none;outline:none;
+  min-height:38px;max-height:120px;line-height:1.5;
+  transition:border-color 0.2s,box-shadow 0.2s;
+}
+.ai-chat-input:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
+.ai-chat-input::placeholder{color:var(--text-m);font-size:12px}
+.ai-chat-send{
+  width:36px;height:36px;flex-shrink:0;
+  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
+  border:none;border-radius:10px;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all 0.2s;
+}
+.ai-chat-send:hover{transform:scale(1.08);box-shadow:0 4px 16px rgba(59,130,246,0.4)}
+.ai-chat-send:disabled{opacity:0.4;cursor:not-allowed;transform:none}
 
 /* NOTE CARD */
 .anc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;position:relative;overflow:hidden;transition:all 0.25s cubic-bezier(0.4,0,0.2,1);animation:cin 0.3s ease both;cursor:pointer}
@@ -351,11 +462,14 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
   .sidebar{height:auto;border-right:none;border-bottom:1px solid var(--border)}
   .composer{min-height:260px}
   textarea.ti{flex:none;min-height:160px;height:200px}
-  .main-content{min-height:50vh;overflow:visible}
+  .main-content{min-height:60vh;overflow:visible;flex:none}
+  .tab-panel{overflow:visible;max-height:none}
   .app-grid{grid-template-columns:1fr}
   .user-uname,.user-out{display:none}
   .ef-row{grid-template-columns:1fr}
   .modal-view,.modal-edit{max-height:96vh;border-radius:16px}
+  .ai-panel{width:calc(100vw - 32px);right:16px;bottom:80px;max-height:60vh}
+  .ai-fab{bottom:16px;right:16px}
 }
 </style>
 </head>
@@ -455,16 +569,36 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
-    <div class="vis-filter-row">
-      <button class="vfb on-all" id="vfAll" onclick="setVisFilt('all',this)">📋 All</button>
-      <button class="vfb" id="vfPub" onclick="setVisFilt('public',this)">🌐 Public</button>
-      <button class="vfb" id="vfPriv" onclick="setVisFilt('private',this)">🔒 Private</button>
+    <!-- Tab bar -->
+    <div class="main-tabs">
+      <button class="mtab active" id="mtab-mine" onclick="switchMainTab('mine',this)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        My Notes <span class="mtab-count" id="mtab-mine-cnt"></span>
+      </button>
+      <button class="mtab" id="mtab-community" onclick="switchMainTab('community',this)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Community <span class="mtab-count" id="mtab-com-cnt"></span>
+      </button>
     </div>
-    <div class="filters" id="app-filters"><button class="fb on" onclick="setAppF('ALL',this)">All</button></div>
-    <!-- My Notes section -->
-    <div id="sec-my"></div>
-    <!-- Community / global notes section -->
-    <div id="sec-community"></div>
+
+    <!-- Filters row (category + visibility) -->
+    <div class="filter-bar">
+      <div class="filters" id="app-filters"><button class="fb on" onclick="setAppF('ALL',this)">All</button></div>
+      <div class="vis-pills">
+        <button class="vpill on-all" id="vfAll" onclick="setVisFilt('all',this)">All</button>
+        <button class="vpill" id="vfPub" onclick="setVisFilt('public',this)">🌐</button>
+        <button class="vpill" id="vfPriv" onclick="setVisFilt('private',this)">🔒</button>
+      </div>
+    </div>
+
+    <!-- My Notes tab -->
+    <div id="tab-mine" class="tab-panel active">
+      <div id="sec-my"></div>
+    </div>
+    <!-- Community tab -->
+    <div id="tab-community" class="tab-panel">
+      <div id="sec-community"></div>
+    </div>
   </main>
 </div>
 
@@ -514,6 +648,32 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
   <img id="lightbox-img" src="" alt="">
 </div>
 
+<!-- AI FAB -->
+<button class="ai-fab" id="ai-fab" onclick="toggleAIChat()" title="AI Instructor">
+  <svg class="ai-fab-ico" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <span class="ai-fab-x">✕</span>
+</button>
+
+<!-- AI Chat Panel -->
+<div class="ai-panel" id="ai-chat-panel">
+  <div class="ai-panel-head">
+    <div class="ai-panel-title">
+      <div class="ai-panel-dot"></div>
+      <span>AI Instructor</span>
+    </div>
+    <button class="ai-panel-close" onclick="closeAIChat()">✕</button>
+  </div>
+  <div class="ai-chat-feed" id="ai-chat-feed"></div>
+  <div class="ai-quick-prompts" id="ai-quick-prompts"></div>
+  <div class="ai-chat-input-wrap">
+    <textarea class="ai-chat-input" id="ai-chat-input"
+      placeholder="Mag-instruct sa AI... (Enter para send)"></textarea>
+    <button class="ai-chat-send" id="ai-chat-send" onclick="sendAIChat()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -522,9 +682,8 @@ window.allNotes=window.allNotes||[];
 let appFilt='ALL',searchQ='',visFilt='all';
 let b64=null,noteVisibility='public';
 let deferredPrompt=null;
-let currentViewKey=null,currentViewNote=null,currentViewTab='notes';
-let editingKey=null;
 let aiMemory={};
+let mainTab='mine'; // 'mine' | 'community'
 
 // ============================================================
 // AUTHOR DETECTION
@@ -569,7 +728,18 @@ function buildMemoryContext(){
   const entries=Object.values(aiMemory);
   if(!entries.length)return'';
   const sorted=entries.sort((a,b)=>(b.updated||0)-(a.updated||0)).slice(0,20);
-  return`\n\nLEARNED CONTEXT:\n${sorted.map(e=>`[${e.category}] ${e.title}: ${e.summary||''}${(e.keyPoints||[]).length?' → '+(e.keyPoints||[]).join(' | '):''}`).join('\n')}`;
+  const rules=sorted.filter(e=>e.categoryRule);
+  const topics=sorted.filter(e=>!e.categoryRule);
+  let ctx='';
+  if(rules.length){
+    ctx+='\n\nCATEGORY RULES (SUNDIN MO PALAGI — user preference ito):\n';
+    ctx+=rules.map(e=>`• [${e.category}] ${e.title}: ${e.categoryRule}`).join('\n');
+  }
+  if(topics.length){
+    ctx+='\n\nLEARNED CONTEXT:\n';
+    ctx+=topics.map(e=>`[${e.category}] ${e.title}: ${e.summary||''}${(e.keyPoints||[]).length?' \u2192 '+(e.keyPoints||[]).join(' | '):''}`).join('\n');
+  }
+  return ctx;
 }
 
 // ============================================================
@@ -603,6 +773,7 @@ STRICT RULES:
 3. "keyPoints" — REQUIRED. 3-5 items. 3-7 words lang bawat isa.
 4. "organizedContent" — organized version ng notes. Walang obvious definitions.
 5. HUWAG mag-hallucinate.
+6. CATEGORY RULES — kung may nakalagay na CATEGORY RULES sa ibaba, SUNDIN MO PALAGI. Priority sila kaysa sa default categorization.
 
 JSON FORMAT:
 {
@@ -651,12 +822,6 @@ function clearImg(e){
   document.getElementById('fi').value='';
 }
 
-function openLightbox(src){
-  document.getElementById('lightbox-img').src=src||document.getElementById('chipImg').src;
-  document.getElementById('lightbox').classList.add('on');
-}
-function closeLightbox(){document.getElementById('lightbox').classList.remove('on');}
-
 // Drag-and-drop onto the composer box
 const composerBox=document.getElementById('composer-box');
 composerBox.addEventListener('dragover',e=>{e.preventDefault();composerBox.style.borderColor='var(--a)';});
@@ -683,11 +848,19 @@ function setVisibility(v){
 }
 function setVisFilt(v,btn){
   visFilt=v;
-  ['vfAll','vfPub','vfPriv'].forEach(id=>document.getElementById(id).className='vfb');
+  ['vfAll','vfPub','vfPriv'].forEach(id=>{const el=document.getElementById(id);if(el)el.className='vpill';});
   if(v==='all')btn.classList.add('on-all');
   else if(v==='public')btn.classList.add('on-pub');
   else btn.classList.add('on-priv');
   renderApp();
+}
+
+function switchMainTab(tab,btn){
+  mainTab=tab;
+  document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  const tp=document.getElementById('tab-'+tab);if(tp)tp.classList.add('active');
 }
 
 // ============================================================
@@ -793,9 +966,6 @@ async function saveNote(p,source,rawNote=''){
   document.getElementById('vfAll')?.classList.add('on-all');
   await updateAIMemory(note);
 }
-
-// ============================================================
-// VISIBILITY TOGGLE
 // ============================================================
 async function toggleNoteVisibility(fbKey,currentIsPublic,e){
   if(e)e.stopPropagation();
@@ -848,8 +1018,8 @@ function buildCard(n,mine){
     ?`<div style="margin:-18px -18px 14px;border-bottom:1px solid var(--border);overflow:hidden;border-radius:var(--r) var(--r) 0 0"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;height:90px;object-fit:cover;display:block" loading="lazy"></div>`
     :'';
   const badge=mine
-    ?`<span class="vis-badge ${isPub?'pub':'priv'} toggle" title="Toggle" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">${isPub?'🌐 Public':'🔒 Private'}</span>`
-    :`<span class="vis-badge pub">🌐 Public</span>`;
+    ?`<span class="vis-badge ${isPub?'pub':'priv'} toggle" title="Toggle visibility" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">${isPub?'🌐':'🔒'}</span>`
+    :'';
   const btns=mine
     ?`<button class="anc-btn edit-b" onclick="event.stopPropagation();openEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
     :'';
@@ -864,7 +1034,7 @@ function buildCard(n,mine){
     <div class="nc-title">${esc(displayTitle(n))}</div>
     <div class="nc-summary">${esc(displaySummary(n))}</div>
     <div class="anc-foot">
-      <div class="anc-src">${n.source==='img'?'🖼️':'📄'} ${n.source==='img'?'Image':'Text'}${n.author?` · ${esc(n.author)}`:''}</div>
+      <div class="anc-src">${n.source==='img'?'🖼️':'📄'} ${n.author?esc(n.author):''}</div>
       <div class="anc-btns">${btns}</div>
     </div>
   </div>`;
@@ -878,28 +1048,26 @@ function renderApp(){
   if(searchQ)list=list.filter(n=>[n.title,n.summary,n.organizedContent,n.category].some(s=>(s||'').toLowerCase().includes(searchQ)));
 
   const myNotes=list.filter(n=>isMyNote(n));
-  // Community = public notes from other users only
   const community=list.filter(n=>!isMyNote(n)&&n.isPublic===true);
+
+  // Update tab counts
+  const mc=document.getElementById('mtab-mine-cnt');const cc=document.getElementById('mtab-com-cnt');
+  if(mc)mc.textContent=myNotes.length?myNotes.length:'';
+  if(cc)cc.textContent=community.length?community.length:'';
 
   const secMy=document.getElementById('sec-my');
   const secCom=document.getElementById('sec-community');
 
-  // My Notes
-  if(visFilt!=='public'||myNotes.length>0){
-    if(myNotes.length===0){
-      secMy.innerHTML=`<div class="notes-sec-head"><span class="nsh-lbl mine">My Notes</span><div class="nsh-line"></div><span class="nsh-cnt">0</span></div><div class="app-grid"><div class="empty"><div class="empty-ico">${searchQ?'🔍':'📋'}</div><div class="empty-t">${searchQ?'Walang nahanap':'No notes yet'}</div><div class="empty-s">${searchQ?'Try a different search':'Paste notes and hit Organize!'}</div></div></div>`;
-    }else{
-      secMy.innerHTML=`<div class="notes-sec-head"><span class="nsh-lbl mine">My Notes</span><div class="nsh-line"></div><span class="nsh-cnt">${myNotes.length}</span></div><div class="app-grid">${myNotes.map(n=>buildCard(n,true)).join('')}</div>`;
-    }
+  if(myNotes.length===0){
+    secMy.innerHTML=`<div class="empty"><div class="empty-ico">${searchQ?'🔍':'📋'}</div><div class="empty-t">${searchQ?'Walang nahanap':'Wala ka pang notes'}</div><div class="empty-s">${searchQ?'Try different keywords':'I-paste ang notes at i-organize!'}</div></div>`;
   }else{
-    secMy.innerHTML='';
+    secMy.innerHTML=`<div class="app-grid">${myNotes.map(n=>buildCard(n,true)).join('')}</div>`;
   }
 
-  // Community Notes
-  if(visFilt==='private'||community.length===0){
-    secCom.innerHTML='';
+  if(community.length===0){
+    secCom.innerHTML=`<div class="empty"><div class="empty-ico">🌐</div><div class="empty-t">Walang community notes</div><div class="empty-s">I-set ang iyong notes sa Public para makita ng iba</div></div>`;
   }else{
-    secCom.innerHTML=`<div class="notes-sec-head" style="margin-top:${myNotes.length>0?'28px':'6px'}"><span class="nsh-lbl global">🌐 Community Notes</span><div class="nsh-line"></div><span class="nsh-cnt">${community.length}</span></div><div class="app-grid">${community.map(n=>buildCard(n,false)).join('')}</div>`;
+    secCom.innerHTML=`<div class="app-grid">${community.map(n=>buildCard(n,false)).join('')}</div>`;
   }
 }
 
@@ -926,279 +1094,11 @@ function displaySummary(n){
 function setAppF(f,btn){appFilt=f;document.querySelectorAll('#app-filters .fb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');renderApp();}
 function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 
-// ============================================================
-// VIEW MODAL
-// ============================================================
-function switchViewTab(t){
-  currentViewTab=t;
-  document.getElementById('mvt-notes').classList.toggle('on',t==='notes');
-  document.getElementById('mvt-summary').classList.toggle('on',t==='summary');
-  renderViewBody();
-}
-function renderViewBody(){
-  const n=currentViewNote;if(!n)return;
-  const body=document.getElementById('mv-body');
-  if(currentViewTab==='notes'){
-    const imgHtml=n.imageData
-      ?`<div style="margin-bottom:14px;border-radius:10px;overflow:hidden;border:1px solid var(--border);cursor:zoom-in" onclick="openLightbox('data:image/jpeg;base64,${n.imageData}')" title="Click to enlarge">
-          <img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;display:block;max-height:260px;object-fit:contain;background:var(--surface2)">
-          <div style="padding:5px 10px;background:var(--surface3);font-size:10px;color:var(--text-m);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:5px">
-            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-            Tap to enlarge
-          </div>
-        </div>`
-      :'';
-    const display=str(n.rawNote)||str(n.organizedContent);
-    const isEmpty=!display.trim()||display==='[image]';
-    const copyBtn=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onclick="copyNotes()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>`;
-    const noteBox=isEmpty
-      ?`<div style="color:var(--text-m);font-style:italic;font-size:13px;text-align:center;padding:30px 0">Walang text — image note ito.</div>`
-      :`<div style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.85;color:var(--text-b);background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">${esc(display)}</div>`;
-    body.innerHTML=imgHtml+copyBtn+noteBox;
-  }else{
-    let kps=[];
-    if(Array.isArray(n.keyPoints))kps=n.keyPoints.map(k=>str(k)).filter(k=>k.trim());
-    else if(n.keyPoints&&typeof n.keyPoints==='object')kps=Object.values(n.keyPoints).map(str).filter(k=>k.trim());
-    else if(typeof n.keyPoints==='string'&&n.keyPoints.trim())kps=[n.keyPoints];
-    const sText=str(n.summary).trim();
-    const badS=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
-    const sumHtml=badS.includes(sText.toLowerCase())
-      ?`<span style="color:var(--text-m);font-style:italic;font-size:13px">Walang summary.</span>`:esc(sText);
-    const kpHtml=kps.length
-      ?`<div class="vs"><div class="vs-l">🔑 Key Points</div><div class="kp-list">${kps.map(p=>`<div class="kp-item"><span class="kp-arrow">→</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
-      :`<div class="vs"><div class="vs-l">🔑 Key Points</div><div style="color:var(--text-m);font-style:italic;font-size:13px">Wala.</div></div>`;
-    body.innerHTML=`<div class="vs"><div class="vs-l">💡 Summary</div><div class="vs-box">${sumHtml}</div></div>${kpHtml}`;
-  }
-}
-function copyNotes(){
-  const n=currentViewNote;if(!n)return;
-  const text=str(n.rawNote)||str(n.organizedContent);
-  navigator.clipboard.writeText(text).then(()=>showToast('Copied!')).catch(()=>{
-    const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;opacity:0';
-    document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);showToast('Copied!');
-  });
-}
-function openView(key){
-  const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
-  if(!n)return;
-  currentViewKey=key;currentViewNote=n;currentViewTab='notes';
-  const isPub=n.isPublic===true;
-  const mine=isMyNote(n);
-  document.getElementById('mv-meta').innerHTML=`
-    <span ${getCatPill(n.category)} style="font-size:11px">${getCatEmoji(n.category)} ${n.category}</span>
-    <span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.date||''}</span>
-    ${n.author?`<span style="font-size:11px;color:var(--text-m)">· ${esc(n.author)}</span>`:''}`;
-  document.getElementById('mv-title').textContent=displayTitle(n);
-  document.getElementById('mv-vis-area').innerHTML=mine
-    ?`<span class="vis-badge ${isPub?'pub':'priv'} toggle" style="cursor:pointer;font-size:11px" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">${isPub?'🌐 Public':'🔒 Private'}<span style="opacity:0.4;font-size:9px;margin-left:4px">· toggle</span></span>`
-    :`<span class="vis-badge pub" style="font-size:11px">🌐 Public</span>`;
-  // Edit/delete only for own notes
-  document.getElementById('mv-foot-r').innerHTML=mine
-    ?`<button class="mfbtn edit" onclick="openEdit('${key}')">✏️ Edit</button><button class="mfbtn del" onclick="delNote('${n.fbKey||''}',${n.id},null)">🗑️ Delete</button>`
-    :'';
-  document.getElementById('mvt-notes').classList.add('on');
-  document.getElementById('mvt-summary').classList.remove('on');
-  renderViewBody();
-  document.getElementById('ov-view').classList.add('on');
-}
-function closeView(){document.getElementById('ov-view').classList.remove('on');currentViewKey=null;currentViewNote=null;}
-
-// ============================================================
-// EDIT MODAL — with image attach/replace support
-// ============================================================
-let editB64=null; // tracks new/replacement image during edit
-
-function onEditFile(e){
-  const f=e.target.files[0];if(!f)return;
-  const r=new FileReader();
-  r.onload=ev=>{
-    editB64=ev.target.result.split(',')[1];
-    // Update the chip in edit modal
-    const chip=document.getElementById('ef-img-chip-img');
-    const strip=document.getElementById('ef-img-strip');
-    if(chip){chip.src=ev.target.result;}
-    if(strip){strip.style.display='flex';}
-    // Update noimg add button section
-    const noimg=document.getElementById('ef-noimg');
-    if(noimg)noimg.style.display='none';
-    showToast('🖼️ Image updated!');
-  };
-  r.readAsDataURL(f);
-}
-
-function removeEditImg(){
-  editB64='__REMOVE__'; // sentinel — means clear the image on save
-  const strip=document.getElementById('ef-img-strip');
-  if(strip)strip.style.display='none';
-  const noimg=document.getElementById('ef-noimg');
-  if(noimg)noimg.style.display='flex';
-}
-
-function openEdit(key){
-  const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
-  if(!n)return;
-  if(!isMyNote(n)){showToast('⚠️ Hindi mo ma-edit ang notes ng iba.');return;}
-  editingKey=key;
-  editB64=null; // reset
-  document.getElementById('ef-fi').value='';
-  const rawVal=str(n.rawNote)||str(n.organizedContent);
-  const hasImg=!!(n.imageData);
-  const imgSrc=hasImg?`data:image/jpeg;base64,${n.imageData}`:'';
-
-  document.getElementById('me-body').innerHTML=`
-    <!-- Image section -->
-    <div class="ef">
-      <div class="ef-l">Image ${hasImg?'':'(optional)'}</div>
-      <!-- Chip shown when image exists -->
-      <div id="ef-img-strip" style="display:${hasImg?'flex':'none'};align-items:flex-start;gap:10px;margin-bottom:4px">
-        <div class="ef-img-chip" onclick="openLightbox('${imgSrc}')" title="Click to enlarge">
-          <img id="ef-img-chip-img" src="${imgSrc}" alt="image">
-        </div>
-        <div class="ef-img-actions">
-          <button type="button" class="ef-img-btn" onclick="document.getElementById('ef-fi').click()">🔄 Replace</button>
-          <button type="button" class="ef-img-btn" style="color:var(--red);border-color:rgba(248,113,113,0.3)" onclick="removeEditImg()">🗑️ Remove</button>
-        </div>
-      </div>
-      <!-- Add image button when no image -->
-      <div id="ef-noimg" style="display:${hasImg?'none':'flex'};align-items:center;gap:8px">
-        <button type="button" class="ef-img-btn" onclick="document.getElementById('ef-fi').click()">
-          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Attach Image
-        </button>
-        <span style="font-size:11px;color:var(--text-m)">or paste Ctrl+V</span>
-      </div>
-    </div>
-    <div class="ef"><div class="ef-l">Title</div><input class="ef-in" id="ef-title" value="${esc(n.title)}"></div>
-    <div class="ef-row">
-      <div class="ef"><div class="ef-l">Category</div><input class="ef-in" id="ef-cat" value="${esc(n.category)}" placeholder="IT, STUDY, CRYPTO..."></div>
-      <div class="ef"><div class="ef-l">Visibility</div>
-        <select class="ef-in" id="ef-vis">
-          <option value="public" ${n.isPublic!==false?'selected':''}>🌐 Public</option>
-          <option value="private" ${n.isPublic===false?'selected':''}>🔒 Private</option>
-        </select>
-      </div>
-    </div>
-    <div class="ef" style="display:flex;flex-direction:column">
-      <div class="ef-l">Text Notes</div>
-      <textarea class="ef-in ef-ta tall" id="ef-rawnote" style="min-height:180px">${esc(rawVal==='[image]'?'':rawVal)}</textarea>
-    </div>
-    <div style="background:var(--ag2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--text-m);display:flex;align-items:center;gap:8px;margin-top:4px">
-      <span>🤖</span><span>I-save — mag-re-organize si AI.</span>
-    </div>`;
-
-  // Allow paste into edit modal
-  document.getElementById('me-body').onpaste=function(e){
-    for(const item of e.clipboardData?.items||[]){
-      if(item.type.startsWith('image/')){
-        const f=item.getAsFile();if(!f)return;
-        const r2=new FileReader();
-        r2.onload=ev2=>{
-          editB64=ev2.target.result.split(',')[1];
-          const chip=document.getElementById('ef-img-chip-img');
-          const strip=document.getElementById('ef-img-strip');
-          const noimg=document.getElementById('ef-noimg');
-          if(!chip){
-            // rebuild chip
-            document.getElementById('ef-img-strip').innerHTML=`<div class="ef-img-chip" onclick="openLightbox('${ev2.target.result}')" title="Click to enlarge"><img id="ef-img-chip-img" src="${ev2.target.result}" alt="image"></div><div class="ef-img-actions"><button type="button" class="ef-img-btn" onclick="document.getElementById('ef-fi').click()">🔄 Replace</button><button type="button" class="ef-img-btn" style="color:var(--red);border-color:rgba(248,113,113,0.3)" onclick="removeEditImg()">🗑️ Remove</button></div>`;
-          }else{chip.src=ev2.target.result;chip.parentElement.onclick=()=>openLightbox(ev2.target.result);}
-          if(strip)strip.style.display='flex';
-          if(noimg)noimg.style.display='none';
-          showToast('📋 Image pasted!');
-        };
-        r2.readAsDataURL(f);break;
-      }
-    }
-  };
-
-  closeView();
-  document.getElementById('ov-edit').classList.add('on');
-}
-
-function closeEdit(){document.getElementById('ov-edit').classList.remove('on');editingKey=null;editB64=null;}
-
-async function saveEdit(){
-  if(!editingKey)return;
-  const n=window.allNotes.find(x=>(x.fbKey===editingKey||String(x.id)===String(editingKey)));
-  if(!n)return;
-  if(!isMyNote(n)){showToast('⚠️ Hindi mo ma-edit ang notes ng iba.');closeEdit();return;}
-  const title=document.getElementById('ef-title').value.trim()||n.title;
-  const category=(document.getElementById('ef-cat').value.trim()||n.category).toUpperCase().replace(/\s+/g,'_');
-  const isPublic=document.getElementById('ef-vis').value==='public';
-  const rawNote=document.getElementById('ef-rawnote').value.trim();
-
-  // Resolve final imageData
-  let imageData=n.imageData||''; // keep existing by default
-  if(editB64==='__REMOVE__')imageData='';
-  else if(editB64)imageData=editB64;
-
-  const btn=document.getElementById('save-btn');
-  btn.disabled=true;btn.innerHTML='<span style="animation:blk 1s infinite alternate;display:inline-block">🤖 Re-organizing...</span>';
-  try{
-    function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,vv])=>k+': '+vv).join('\n');return String(v);}
-    function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
-
-    // Determine source: has image → 'img', else 'text'
-    const newSource=imageData?'img':'text';
-    let updates={title,category,isPublic,rawNote,imageData,source:newSource};
-
-    // Re-organize with AI
-    if(imageData&&rawNote){
-      // Image + text context
-      try{
-        const textBlock=`${buildSysPrompt()}\n\nBasahin at i-organize. May dagdag na text context:\n\n${rawNote}`;
-        const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'text',text:textBlock},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imageData}`}}]}]})});
-        const data=await res.json();
-        if(!data.error){
-          let raw=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
-          const s=raw.indexOf('{');const e2=raw.lastIndexOf('}');
-          if(s!==-1&&e2!==-1)raw=raw.slice(s,e2+1);
-          const p=JSON.parse(raw);
-          updates={...updates,title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
-        }
-      }catch(e){console.error('Vision re-org:',e);}
-    }else if(imageData&&!rawNote){
-      // Image only re-read
-      try{
-        const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'text',text:buildSysPrompt()+'\n\nBasahin at i-organize ang notes sa image. Return PURE JSON only.'},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imageData}`}}]}]})});
-        const data=await res.json();
-        if(!data.error){
-          let raw=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
-          const s=raw.indexOf('{');const e2=raw.lastIndexOf('}');
-          if(s!==-1&&e2!==-1)raw=raw.slice(s,e2+1);
-          const p=JSON.parse(raw);
-          updates={...updates,title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
-        }
-      }catch(e){console.error('Vision re-org:',e);}
-    }else if(rawNote){
-      // Text only
-      try{
-        const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize:\n\n'+rawNote}]})});
-        const data=await res.json();
-        if(!data.error){
-          let raw=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
-          const s=raw.indexOf('{');const e2=raw.lastIndexOf('}');
-          if(s!==-1&&e2!==-1)raw=raw.slice(s,e2+1);
-          const p=JSON.parse(raw);
-          updates={...updates,title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
-        }
-      }catch(e){console.error('Text re-org:',e);}
-    }
-
-    if(window._db&&window._update&&window._ref&&n.fbKey){
-      await window._update(window._ref(window._db,`notes/${n.fbKey}`),updates);
-      await updateAIMemory({...n,...updates});
-    }else{Object.assign(n,updates);renderApp();await updateAIMemory({...n,...updates});}
-    showToast('✅ Updated & re-organized!');closeEdit();
-  }catch(err){console.error(err);showToast('⚠️ Failed: '+err.message);}
-  btn.disabled=false;
-  btn.innerHTML='<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Changes';
-}
 
 // ============================================================
 // UTILS
 // ============================================================
 function doSignOut(){if(!confirm('Sign out?'))return;window._signOut().then(()=>window.location.href='index.html');}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeView();closeEdit();closeLightbox();}});
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200);}
 
 /* PWA */
@@ -1220,5 +1120,10 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(
 
 renderApp();
 </script>
+
+<!-- Modal logic lives in app-modals.js -->
+<script src="app-modals.js"></script>
+<!-- AI Instructor FAB lives in app-ai.js -->
+<script src="app-ai.js"></script>
 </body>
 </html>
