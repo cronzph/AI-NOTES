@@ -1,17 +1,124 @@
 // ============================================================
-// app-ai.js  —  AI Instructor  (full rewrite)
+// app-ai.js  —  AI Instructor  v2 (smarter rebuild)
+// Upgrades:
+//   1. Intent Engine  — understands casual/vague Filipino+English
+//   2. Proactive Mode — suggests fixes on panel open
+//   3. Session Memory — remembers decisions within session
+//   4. Smart Memory   — AI-scored relevance before save/delete
 // ============================================================
 
 const AI_CHAT_HISTORY = [];
-let aiChatOpen        = false;
-let _pendingAction    = null;
+let aiChatOpen           = false;
+let _pendingAction       = null;
 let _quickPromptsVisible = true;
+
+// ── Session state: remembers decisions this session ──────────
+const AI_SESSION = {
+  lastSuggestedFixes : [],   // fbKeys suggested for fixing
+  declinedSuggestions: [],   // fbKeys user said no to
+  confirmedActions   : [],   // log of what was done
+  openedAt           : Date.now(),
+  messageCount       : 0,
+};
+
+// ─────────────────────────────────────────────────────────────
+// INTENT ENGINE  — understand what the user actually means
+// Works for Filipino, English, and mixed Taglish
+// ─────────────────────────────────────────────────────────────
+const INTENT_PATTERNS = [
+  // ── Memory: delete specific ──────────────────────────────
+  { intent: 'memory_delete_specific',
+    patterns: [/\b(bura|tanggal|delete|remove|alisin|i-delete|itanggal)\b.*\b(memory|memorya)\b/,
+               /\b(memory|memorya)\b.*\b(bura|tanggal|delete|remove|alisin)\b/] },
+
+  // ── Memory: check/view ───────────────────────────────────
+  { intent: 'memory_view',
+    patterns: [/\b(tingnan|tignan|show|ipakita|view|list|check)\b.*\b(memory|memorya)\b/,
+               /\b(memory|memorya)\b.*\b(tingnan|show|view|ano|what)\b/,
+               /ano.*\b(memory|memorya)\b/,
+               /\bmemory\b.*\?/] },
+
+  // ── Memory: clean/decide ─────────────────────────────────
+  { intent: 'memory_clean',
+    patterns: [/\b(linis|clean|ayos|check)\b.*\b(memory|memorya)\b/,
+               /\b(memory|memorya)\b.*\b(linis|clean|ayos|tanggalin.*lahat)\b/,
+               /\b(kung meron|kung may)\b.*\b(tanggal|delete|linis)\b/,
+               /\btanggalin\b.*\blahat\b.*\b(memory|memorya)\b/] },
+
+  // ── Notes: scan/check errors ─────────────────────────────
+  { intent: 'notes_scan',
+    patterns: [/\b(scan|check|suriin|tingnan)\b.*\b(notes|mali|error|wrong|kategor|category)\b/,
+               /\b(alin|which)\b.*\b(mali|wrong|error|dapat|should)\b/,
+               /\b(i-check|i-scan)\b.*\bnotes\b/] },
+
+  // ── Notes: fix one ───────────────────────────────────────
+  { intent: 'notes_fix_one',
+    patterns: [/\b(ayusin|fix|i-fix|baguhin|update|palitan)\b.*\b(note|isang|yung|yong|ito)\b/,
+               /\b(note)\b.*\b(ayusin|fix|i-fix|mali|wrong)\b/] },
+
+  // ── Notes: fix all / bulk ────────────────────────────────
+  { intent: 'notes_bulk_fix',
+    patterns: [/\b(bulk|lahat|all|bawat)\b.*\b(fix|ayos|ayusin|update|palitan)\b/,
+               /\b(fix|ayos)\b.*\b(lahat|all|bulk)\b/,
+               /\b(i-bulk)\b/] },
+
+  // ── Behavior: save rule ──────────────────────────────────
+  { intent: 'behavior_save',
+    patterns: [/\b(huwag|wag|never|palagi|always|lagi)\b.*\b(save|i-save|lagay|ilagay|store)\b/,
+               /\b(tandaan|remember|i-remember)\b.*\b(rule|batas|dapat)\b/] },
+
+  // ── Overview ─────────────────────────────────────────────
+  { intent: 'notes_overview',
+    patterns: [/\b(overview|breakdown|summary|buod|ilang|how many)\b.*\bnotes\b/,
+               /\bnotes\b.*\b(ilan|ilang|count|lahat|overview)\b/] },
+
+  // ── Clear memory ─────────────────────────────────────────
+  { intent: 'memory_clear_all',
+    patterns: [/\b(clear|burahin|tanggalin)\b.*\b(lahat|all)\b.*\b(memory|memorya)\b/,
+               /\b(memory|memorya)\b.*\b(clear all|burahin lahat|tanggalin lahat)\b/] },
+
+  // ── Greeting / small talk ────────────────────────────────
+  { intent: 'greeting',
+    patterns: [/^(hoy|hey|hi|hello|kumusta|sup|uy|oi)[!?.,\s]*$/i,
+               /^(kamusta|musta)[!?.,\s]*$/i] },
+];
+
+/**
+ * Detect the most likely intent from a message.
+ * Returns { intent, confidence } or null.
+ */
+function detectIntent(msg) {
+  var lower = msg.toLowerCase().trim();
+  for (var i = 0; i < INTENT_PATTERNS.length; i++) {
+    var ip = INTENT_PATTERNS[i];
+    for (var j = 0; j < ip.patterns.length; j++) {
+      if (ip.patterns[j].test(lower)) {
+        return { intent: ip.intent, confidence: 'high' };
+      }
+    }
+  }
+  // Fuzzy fallback
+  if (/\bmemory\b/.test(lower) && /\b(ano|what|show|list)\b/.test(lower))
+    return { intent: 'memory_view', confidence: 'medium' };
+  if (/\bnotes\b/.test(lower) && /\b(scan|check|mali)\b/.test(lower))
+    return { intent: 'notes_scan', confidence: 'medium' };
+  return null;
+}
+
+/**
+ * Returns true if the message is vague enough that the AI
+ * should decide what to do (not the JS direct handler).
+ */
+function isVagueCleanRequest(lower) {
+  return /\b(check|tingnan|tignan|linisin|clean|i-clean|mag-clean|suriin|i-check)\b/.test(lower)
+      || /\b(kung meron|kung may|kung mayroon)\b/.test(lower)
+      || /\b(lahat|all|everything)\b.*\b(tanggal|delete|remove|clear)\b/.test(lower)
+      || /\b(tanggal|delete|remove)\b.*\b(lahat|all|everything)\b/.test(lower);
+}
 
 // ─────────────────────────────────────────────────────────────
 // BEHAVIOR RULES ENGINE
 // ─────────────────────────────────────────────────────────────
-
-/** Return all saved behavior rules as an array of strings. */
 function getBehaviorRules() {
   return Object.values(aiMemory || {})
     .filter(function(v){ return v.category === 'BEHAVIOR' || v.behaviorRule; })
@@ -21,14 +128,11 @@ function getBehaviorRules() {
 
 async function shouldSkipMemorySave(note) {
   var title   = String(note.title   || '').toLowerCase().trim();
-  var raw     = String(note.rawNote || note.organizedContent || '').toLowerCase();
   var summary = String(note.summary || '').toLowerCase();
 
   if (/walang mahalagang impormasyon/.test(summary)) return { skip:true, reason:'walang laman' };
-
-  if (/^(test|testing|try+|sample|pantest|dummy|placeholder)(\s+(note|notes|lang|ito|nito|only|cmd|command))?$/.test(title)) {
+  if (/^(test|testing|try+|sample|pantest|dummy|placeholder)(\s+(note|notes|lang|ito|nito|only|cmd|command))?$/.test(title))
     return { skip:true, reason:'test/try title' };
-  }
 
   var rules = getBehaviorRules();
   for (var ri = 0; ri < rules.length; ri++) {
@@ -36,12 +140,10 @@ async function shouldSkipMemorySave(note) {
     var skipKeywords = extractSkipKeywords(ruleText);
     for (var ki = 0; ki < skipKeywords.length; ki++) {
       var kw = skipKeywords[ki];
-      if (new RegExp('(^|\\s|_)' + escapeRegex(kw) + '(\\s|_|$)').test(title)) {
+      if (new RegExp('(^|\\s|_)' + escapeRegex(kw) + '(\\s|_|$)').test(title))
         return { skip:true, reason:'user rule: ' + rules[ri].slice(0,60) };
-      }
     }
   }
-
   return { skip:false, reason:'' };
 }
 
@@ -49,9 +151,7 @@ function extractSkipKeywords(ruleText) {
   var keywords = [];
   var knownSkip = ['test','testing','try','sample','pantest','dummy','placeholder',
                    'blank','empty','blangko','walang laman','temp','temporary'];
-  knownSkip.forEach(function(k){
-    if (ruleText.indexOf(k) !== -1) keywords.push(k);
-  });
+  knownSkip.forEach(function(k){ if (ruleText.indexOf(k) !== -1) keywords.push(k); });
   var m = ruleText.match(/kapag\s+(\w+)\s+(lang|huwag|di|hindi)/);
   if (m && m[1] && keywords.indexOf(m[1]) === -1) keywords.push(m[1]);
   var m2 = ruleText.match(/\bng\s+(\w+)\s+notes?\b/);
@@ -78,7 +178,6 @@ function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
         return _orig.apply(this, arguments);
       };
       window._aiMemoryOverrideInstalled = true;
-      console.log('[app-ai.js] updateAIMemory override installed ✓');
       return;
     }
     if (attempts++ < 30) setTimeout(tryInstall, 100);
@@ -88,7 +187,7 @@ function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 })();
 
 // ─────────────────────────────────────────────────────────────
-// AUTO-CLEAN JUNK MEMORY ON PANEL OPEN
+// AUTO-CLEAN JUNK MEMORY
 // ─────────────────────────────────────────────────────────────
 async function cleanJunkMemoryEntries() {
   var keys = Object.keys(aiMemory || {});
@@ -112,7 +211,100 @@ async function cleanJunkMemoryEntries() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SYSTEM PROMPT
+// PROACTIVE ANALYSIS — runs once on panel open
+// Scans notes for common issues and builds a suggestion list
+// ─────────────────────────────────────────────────────────────
+function analyzeNotesProactively() {
+  var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
+  if (!myNotes.length) return null;
+
+  var issues = [];
+
+  myNotes.forEach(function(n) {
+    var titleLower = String(n.title||'').toLowerCase().trim();
+    var cat        = String(n.category||'').toUpperCase();
+    var raw        = String(n.rawNote||'').toLowerCase().trim();
+
+    // Bad title
+    if (!n.title || ['untitled','walang laman','no title','n/a'].includes(titleLower))
+      issues.push({ type:'bad_title', fbKey:n.fbKey, title:n.title||'(walang title)',
+                    msg:'Walang maayos na title' });
+
+    // Possibly wrong category — OTHER when content suggests something specific
+    else if (cat === 'OTHER' && raw.length > 30) {
+      var hints = {
+        IT:       /\b(code|javascript|python|api|server|database|css|html|programming|dev|software|bug|git|react|node)\b/,
+        STUDY:    /\b(exam|lesson|lecture|quiz|assignment|review|notes|chapter|topic|study)\b/,
+        FREELANCE:/\b(client|project|proposal|freelance|invoice|payment|rate|job|contract)\b/,
+        CRYPTO:   /\b(bitcoin|btc|eth|crypto|token|wallet|binance|trading|coin|nft)\b/,
+        PERSONAL: /\b(personal|diary|feeling|mood|family|friend|love|health|goal)\b/,
+      };
+      var detected = null;
+      Object.keys(hints).forEach(function(hcat){
+        if (hints[hcat].test(raw)) detected = hcat;
+      });
+      if (detected) issues.push({ type:'wrong_category', fbKey:n.fbKey, title:n.title,
+                                   msg:'Maaaring ['+detected+'] tama kaysa [OTHER]',
+                                   suggestedCat: detected });
+    }
+  });
+
+  // Check for near-duplicate titles
+  var titleMap = {};
+  myNotes.forEach(function(n){
+    var words = String(n.title||'').toLowerCase().split(/\s+/).slice(0,4).join(' ');
+    if (words.length < 4) return;
+    if (!titleMap[words]) titleMap[words] = [];
+    titleMap[words].push(n);
+  });
+  Object.keys(titleMap).forEach(function(words){
+    if (titleMap[words].length >= 2) {
+      titleMap[words].forEach(function(n){
+        // Don't double-add
+        if (!issues.find(function(i){ return i.fbKey===n.fbKey && i.type==='duplicate_title'; }))
+          issues.push({ type:'duplicate_title', fbKey:n.fbKey, title:n.title,
+                        msg:'Posibleng duplicate ng ibang note' });
+      });
+    }
+  });
+
+  AI_SESSION.lastSuggestedFixes = issues.map(function(i){ return i.fbKey; });
+  return issues;
+}
+
+function buildProactiveMessage(issues) {
+  if (!issues || !issues.length) return null;
+
+  var badTitle = issues.filter(function(i){ return i.type==='bad_title'; });
+  var wrongCat = issues.filter(function(i){ return i.type==='wrong_category'; });
+  var dupes    = issues.filter(function(i){ return i.type==='duplicate_title'; });
+
+  var lines = ['📊 Na-scan ko ang iyong notes. May nahanap akong pwedeng i-improve:\n'];
+
+  if (badTitle.length) {
+    lines.push('⚠️  ' + badTitle.length + ' note' + (badTitle.length>1?'s':'') + ' na walang maayos na title:');
+    badTitle.slice(0,3).forEach(function(i){ lines.push('   • "' + i.title + '"'); });
+    if (badTitle.length > 3) lines.push('   ... at ' + (badTitle.length-3) + ' pa');
+    lines.push('');
+  }
+  if (wrongCat.length) {
+    lines.push('🏷️  ' + wrongCat.length + ' note' + (wrongCat.length>1?'s':'') + ' na maaaring mali ang category:');
+    wrongCat.slice(0,3).forEach(function(i){ lines.push('   • "' + i.title + '" → ' + i.msg); });
+    if (wrongCat.length > 3) lines.push('   ... at ' + (wrongCat.length-3) + ' pa');
+    lines.push('');
+  }
+  if (dupes.length) {
+    lines.push('🔁  ' + dupes.length + ' note' + (dupes.length>1?'s':'') + ' na posibleng duplicate:');
+    dupes.slice(0,3).forEach(function(i){ lines.push('   • "' + i.title + '"'); });
+    lines.push('');
+  }
+
+  lines.push('Gusto mo bang i-fix ko ang mga ito? Sabi mo lang "oo" o "ayusin mo lahat" 😊');
+  return lines.join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYSTEM PROMPT  — full context + session state injected
 // ─────────────────────────────────────────────────────────────
 function buildAIInstructorPrompt() {
   var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
@@ -121,12 +313,8 @@ function buildAIInstructorPrompt() {
     ? myNotes.map(function(n, i) {
         var t = String(n.title||'').replace(/"/g,"'").slice(0,60);
         var r = String(n.rawNote||'').replace(/\n/g,' ').replace(/"/g,"'").slice(0,100);
-        return '['+i+'] fbKey="'+n.fbKey
-          +'" | title="'+t
-          +'" | cat="'+n.category
-          +'" | public='+(n.isPublic===true)
-          +(r?' | raw="'+r+'"':'')
-          +(n.imageData?' | hasImage=true':'');
+        return '['+i+'] fbKey="'+n.fbKey+'" | title="'+t+'" | cat="'+n.category+'" | public='+(n.isPublic===true)
+          +(r?' | raw="'+r+'"':'')+(n.imageData?' | hasImage=true':'');
       }).join('\n')
     : '(wala pang notes)';
 
@@ -135,8 +323,8 @@ function buildAIInstructorPrompt() {
     ? memEntries.map(function(kv) {
         var k=kv[0], v=kv[1];
         var s=String(v.summary||'').slice(0,80).replace(/"/g,"'");
-        var extras = (v.categoryRule ? ' | RULE:"'+v.categoryRule+'"' : '')
-                   + (v.behaviorRule ? ' | BEHAVIOR:"'+v.behaviorRule+'"' : '');
+        var extras = (v.categoryRule?' | RULE:"'+v.categoryRule+'"':'')
+                   + (v.behaviorRule?' | BEHAVIOR:"'+v.behaviorRule+'"':'');
         return 'key="'+k+'" | cat="'+(v.category||'')+'" | title="'+(v.title||'')+'" | summary="'+s+'"'+extras;
       }).join('\n')
     : '(walang entries)';
@@ -146,44 +334,67 @@ function buildAIInstructorPrompt() {
     ? behaviorRules.map(function(r,i){ return (i+1)+'. '+r; }).join('\n')
     : '(wala)';
 
+  // Session context
+  var sessionBlock = '';
+  if (AI_SESSION.confirmedActions.length) {
+    sessionBlock = '\nSESSION ACTIONS (ginawa na ngayong session):\n'
+      + AI_SESSION.confirmedActions.slice(-8).map(function(a){ return '• '+a; }).join('\n') + '\n';
+  }
+  if (AI_SESSION.lastSuggestedFixes.length) {
+    sessionBlock += '\nLAST SUGGESTED FIX TARGETS (fbKeys): '
+      + AI_SESSION.lastSuggestedFixes.slice(0,5).join(', ') + '\n';
+  }
+  if (AI_SESSION.declinedSuggestions.length) {
+    sessionBlock += 'USER DECLINED FIXING: '
+      + AI_SESSION.declinedSuggestions.join(', ') + ' — huwag na muling i-suggest\n';
+  }
+
   return [
 '================================================================',
 'IKAW: AI Instructor ng Notes AI app ni '+((window._currentUser&&window._currentUser.displayName)||'User')+'.',
-'AWTORIDAD: Mayroon kang FULL POWER sa notes at memory ng user.',
-'           Maaari kang mag-read, mag-fix, mag-organize, mag-delete ng memory entries.',
-'           Maaari kang sumunosig at gumawa ng desisyon nang mag-isa.',
+'AWTORIDAD: FULL POWER sa notes at memory. Maaari kang mag-decide nang mag-isa.',
+'LAYUNIN: Maging MATALINO, PROACTIVE, at TUMPAK. Huwag magtanong ng hindi kailangan.',
 '================================================================',
 '',
-'════════════════════ BEHAVIOR RULES ════════════════════════════',
-'Ito ang mga UTOS NG USER na DAPAT MONG SUNDIN PALAGI:',
+'════════════════ BEHAVIOR RULES (SUNDIN PALAGI) ═══════════════',
 behaviorBlock,
-'',
-'⚠️  ENFORCEMENT: Bago ka mag-add_memory ng kahit anong note,',
-'    i-check mo muna kung lumalabas ito sa behavior rules sa itaas.',
-'    Kung ang note ay "test/testing/try/sample/pantest" o kahit',
-'    anong ibinigay na skip-keyword ng user — HUWAG I-SAVE sa memory.',
+'⚠️  Bago mag-add_memory: i-check behavior rules. Huwag i-save ang junk/test entries.',
 '════════════════════════════════════════════════════════════════',
+'',
+sessionBlock,
+'INTENT UNDERSTANDING (kahit hindi exact ang wording):',
+'• "ayusin mo yan / yung note" = fix_note o bulk_fix',
+'• "linis na memory / clear na" = bulk_remove junk OR clear_all',
+'• "sino sino nasa memory / ano laman memory" = show memory list',
+'• "check mo notes ko / may mali ba" = mag-scan at mag-suggest ng fixes',
+'• "oo/sige/go/push/gawin" pagkatapos ng suggestion = execute ang proposed action',
+'• Vague command + context mula sa nakaraang messages = gamitin ang session context',
+'• "check mo memory kung meron tahos tanggalin" = scan then delete junk',
 '',
 'CORE RULES:',
 '1. NOTES ≠ MEMORY. fix_note/bulk_fix = NOTES. add/remove_memory = MEMORY.',
-'2. Kapag "tanggalin sa memory" → remove_memory action. HINDI bulk_fix.',
+'2. "tanggalin sa memory" → remove_memory. HINDI bulk_fix.',
 '3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST.',
-'4. Notes actions (fix_note, bulk_fix): kailangan ng "DAPAT I-CONFIRM:" + [ACTION].',
-'5. Memory actions (add/update/remove/clear): direkta ang [ACTION], walang confirm.',
-'6. Kapag may tatanggalin/baguhin → gawin mo, huwag magtanong ng sobra.',
-'7. Sagot: maikli, malinaw, Filipino/English.',
+'4. Notes actions: kailangan ng "DAPAT I-CONFIRM:" + [ACTION].',
+'5. Memory actions: direkta, walang confirm.',
+'6. Kapag may tatanggalin/baguhin → gawin mo agad, huwag magtanong ng sobra.',
+'7. Sagot: maikli, malinaw, Filipino/English mix.',
 '',
-'ACTION FORMATS (gamitin lang ang kailangan):',
-'fix_note:          {"type":"fix_note","fbKey":"EXACT_FBKEY","updates":{"category":"CAT","title":"..."},"reOrganize":true}',
+'PROACTIVE:',
+'• Kung may obvious na mali sa notes → sabihin mo kahit hindi tinatanong.',
+'• Mag-suggest ng follow-up actions pagkatapos mag-execute.',
+'',
+'ACTION FORMATS:',
+'fix_note:          {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT","title":"..."},"reOrganize":true}',
 'bulk_fix:          {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}],"reason":"...","reOrganize":true}',
 'add_memory:        {"type":"add_memory","data":{"key":"slug","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}',
-'update_memory:     {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","summary":"...","behaviorRule":"..."}}',
+'update_memory:     {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","summary":"..."}}',
 'remove_memory:     {"type":"remove_memory","data":{"key":"EXACT_KEY"}}',
 'bulk_remove_memory:{"type":"bulk_remove_memory","keys":["key1","key2"]}',
 'clear_all_memory:  {"type":"clear_all_memory"}',
-'save_behavior_rule:{"type":"save_behavior_rule","data":{"key":"behavior_slug","title":"Short title","behaviorRule":"The exact rule"}}',
+'save_behavior_rule:{"type":"save_behavior_rule","data":{"key":"slug","title":"Short title","behaviorRule":"The exact rule"}}',
 '',
-'TAG: [ACTION]{...}[/ACTION] — ilagay sa DULO ng message.',
+'TAG: [ACTION]{...}[/ACTION] — sa DULO ng message.',
 '',
 '================================================================',
 'USER NOTES ('+myNotes.length+'):',
@@ -203,29 +414,21 @@ memBlock,
 async function executeAIAction(actionObj) {
   var type = actionObj.type;
 
-  // ── save_behavior_rule ─────────────────────────────────────
   if (type === 'save_behavior_rule') {
     var d = actionObj.data || {};
     if (!d.behaviorRule) return 'Missing behaviorRule.';
     var bkey = (d.key || 'behavior_'+Date.now()).toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,60);
-    var entry = {
-      title: d.title || 'Behavior Rule',
-      category: 'BEHAVIOR',
-      summary: d.behaviorRule,
-      behaviorRule: d.behaviorRule,
-      keyPoints: [],
-      updated: Date.now()
-    };
+    var entry = { title:d.title||'Behavior Rule', category:'BEHAVIOR', summary:d.behaviorRule,
+                  behaviorRule:d.behaviorRule, keyPoints:[], updated:Date.now() };
     try {
       if (window._db&&window._update&&window._ref)
         await window._update(window._ref(window._db,'ai_memory'),{[bkey]:entry});
-      aiMemory[bkey] = entry;
-      updateMemoryBadge();
+      aiMemory[bkey]=entry; updateMemoryBadge();
+      AI_SESSION.confirmedActions.push('Saved behavior rule: "'+d.behaviorRule.slice(0,50)+'"');
       return 'Behavior rule saved: "'+d.behaviorRule+'"';
     } catch(e) { return 'Save failed: '+e.message; }
   }
 
-  // ── fix_note ───────────────────────────────────────────────
   if (type === 'fix_note') {
     var fbKey=actionObj.fbKey, updates=actionObj.updates, reOrganize=actionObj.reOrganize;
     if (!fbKey||!updates) return 'Missing fbKey or updates.';
@@ -250,11 +453,9 @@ async function executeAIAction(actionObj) {
           var rp=JSON.parse(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw);
           function es(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
           function ea(v){return Array.isArray(v)?v.map(es).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-          finalUpdates={
-            title:updates.title||es(rp.title)||n.title,
+          finalUpdates={ title:updates.title||es(rp.title)||n.title,
             category:updates.category||es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
-            summary:es(rp.summary),keyPoints:ea(rp.keyPoints),organizedContent:es(rp.organizedContent)
-          };
+            summary:es(rp.summary), keyPoints:ea(rp.keyPoints), organizedContent:es(rp.organizedContent) };
           if (updates.isPublic!==undefined) finalUpdates.isPublic=updates.isPublic;
         }
       } catch(re){console.warn('Re-org failed:',re.message);}
@@ -264,11 +465,11 @@ async function executeAIAction(actionObj) {
         await window._update(window._ref(window._db,'notes/'+fbKey),finalUpdates);
         await window.updateAIMemory(Object.assign({},n,finalUpdates));
       } else {Object.assign(n,finalUpdates);renderApp();}
+      AI_SESSION.confirmedActions.push('Fixed note: "'+n.title+'"');
       return 'Fixed: "'+n.title+'"';
     } catch(e){return 'Fix failed: '+e.message;}
   }
 
-  // ── bulk_fix ───────────────────────────────────────────────
   if (type === 'bulk_fix') {
     var targets=actionObj.targets,reason=actionObj.reason,reOrg=actionObj.reOrganize;
     if (!targets||!targets.length) return 'Walang targets.';
@@ -309,10 +510,10 @@ async function executeAIAction(actionObj) {
       } catch(e2){results.push('"'+tn.title+'": '+e2.message);}
     }
     renderApp();
+    AI_SESSION.confirmedActions.push('Bulk fixed '+results.length+' notes');
     return 'Bulk fix done! ('+results.length+')\n'+results.join('\n')+(reason?'\n\nReason: '+reason:'');
   }
 
-  // ── add_memory / update_memory ─────────────────────────────
   if (type==='add_memory'||type==='update_memory') {
     var d2=actionObj.data||{};
     if (!d2.key&&!d2.title) return 'Need key or title.';
@@ -333,7 +534,6 @@ async function executeAIAction(actionObj) {
     } catch(e){return 'Memory save failed: '+e.message;}
   }
 
-  // ── remove_memory ──────────────────────────────────────────
   if (type==='remove_memory') {
     var rk=actionObj.data&&actionObj.data.key;
     var rm=Object.keys(aiMemory).find(function(k){
@@ -345,11 +545,11 @@ async function executeAIAction(actionObj) {
         await window._update(window._ref(window._db,'ai_memory'),{[rm]:null});
       var rtitle=aiMemory[rm].title||rm;
       delete aiMemory[rm]; updateMemoryBadge();
+      AI_SESSION.confirmedActions.push('Removed memory: "'+rtitle+'"');
       return 'Tinanggal: "'+rtitle+'"';
     } catch(e){return 'Failed: '+e.message;}
   }
 
-  // ── bulk_remove_memory ─────────────────────────────────────
   if (type==='bulk_remove_memory') {
     var bkeys=actionObj.keys||[];
     if (!bkeys.length) return 'Walang keys.';
@@ -368,11 +568,11 @@ async function executeAIAction(actionObj) {
       } catch(be){bfailed.push(bk+' ('+be.message+')');}
     }
     updateMemoryBadge();
+    AI_SESSION.confirmedActions.push('Bulk removed '+bremoved.length+' memory entries');
     return (bremoved.length?'Tinanggal ('+bremoved.length+'):\n'+bremoved.map(function(r){return'- '+r;}).join('\n'):'')
           +(bfailed.length?'\nHindi mahanap:\n'+bfailed.map(function(f){return'- '+f;}).join('\n'):'');
   }
 
-  // ── clear_all_memory ───────────────────────────────────────
   if (type==='clear_all_memory') {
     try {
       if (window._db&&window._update&&window._ref) {
@@ -381,6 +581,7 @@ async function executeAIAction(actionObj) {
         if (Object.keys(nulls).length) await window._update(window._ref(window._db,'ai_memory'),nulls);
       }
       aiMemory={}; updateMemoryBadge();
+      AI_SESSION.confirmedActions.push('Cleared all memory');
       return 'Memory cleared.';
     } catch(e){return 'Failed: '+e.message;}
   }
@@ -392,38 +593,20 @@ async function executeAIAction(actionObj) {
 // DIRECT HANDLERS
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Returns true if the message is asking the AI to DECIDE what to delete
- * (vs. the user naming a specific thing to delete).
- * These "vague check-and-clean" messages should go straight to the AI.
- */
-function isVagueCleanRequest(lower) {
-  // Patterns like "check mo memory", "tingnan mo at tanggalin", "linisin mo", "clean up"
-  return /\b(check|tingnan|tignan|linisin|clean|i-clean|mag-clean|suriin|i-check)\b/.test(lower)
-      || /\b(kung meron|kung may|kung mayroon)\b/.test(lower)
-      || /\b(lahat|all|everything)\b.*\b(tanggal|delete|remove|clear)\b/.test(lower)
-      || /\b(tanggal|delete|remove)\b.*\b(lahat|all|everything)\b/.test(lower);
-}
-
-/** Handle "tanggalin/delete sa memory [specific item]" directly. Returns true if handled. */
 async function tryDirectMemoryDelete(msg) {
   var lower = msg.toLowerCase();
   if (!/tanggal|delete|remove|bura|alisin|i-delete|itanggal/.test(lower)) return false;
   if (!/memory|memorya/.test(lower)) return false;
-
-  // ── NEW: If the request is vague ("check mo at tanggalin"), let AI handle it ──
   if (isVagueCleanRequest(lower)) return false;
 
   var memKeys = Object.keys(aiMemory || {});
   if (!memKeys.length) { appendChatMsg('ai','Wala nang laman ang AI memory.'); return true; }
 
-  // Strip noise words to get subject terms
   var subject = lower
     .replace(/\b(tanggal|delete|remove|bura|alisin|i-delete|itanggal|sa|ng|ang|yung|mo|na|lahat|memory|memorya|naman|na|nito|ito)\b/g,' ')
     .replace(/\s+/g,' ').trim();
   var subjWords = subject.split(' ').map(function(w){return w.replace(/[^a-z0-9]/g,'');}).filter(function(w){return w.length>1;});
 
-  // If no specific subject words remain → vague, let AI handle
   if (!subjWords.length) return false;
 
   var toDelete = [];
@@ -446,7 +629,6 @@ async function tryDirectMemoryDelete(msg) {
     }
   });
 
-  // If no specific match found → let AI figure it out
   if (!toDelete.length) return false;
 
   var results=[];
@@ -464,7 +646,6 @@ async function tryDirectMemoryDelete(msg) {
   return true;
 }
 
-/** Detect and save a user behavior instruction. Returns true if handled. */
 async function tryDirectBehaviorSave(msg) {
   var lower = msg.toLowerCase();
   var isInstruction = /\b(huwag|wag|don.t|never|hindi|palagi|lagi|always|dapat|tandaan|remember|i-remember|mag-save|maglagay|ilagay|huwag)\b/.test(lower);
@@ -486,9 +667,8 @@ async function tryDirectBehaviorSave(msg) {
     appendChatMsg('ai',
       'Nai-save ang instruction mo sa memory:\n\n'+
       '"'+rule+'"\n\n'+
-      'Ito ay isasama ko sa lahat ng desisyon ko mula ngayon.\n'+
-      'Mahahanap mo ito sa View Memory → BEHAVIOR RULES.\n\n'+
-      'Key: '+key
+      'Isasama ko ito sa lahat ng desisyon ko mula ngayon ✓\n'+
+      'Mahahanap mo ito sa View Memory → BEHAVIOR RULES.'
     );
     return true;
   } catch(e) {
@@ -497,21 +677,68 @@ async function tryDirectBehaviorSave(msg) {
   }
 }
 
+// Handle "oo/sige" responses to the proactive suggestion
+var _pendingProactiveIssues = null;
+
+async function tryProactiveConfirm(msg) {
+  if (!_pendingProactiveIssues) return false;
+  var lower = msg.toLowerCase().trim();
+  var yes = /^(oo|yes|yep|sige|go|ok|tara|push|sure|ayusin|fix|proceed|ayan|yup|gawin|paki|pls|please)/.test(lower);
+  var no  = /^(hindi|no|nope|cancel|ayaw|stop|huwag|wag|di na|skip)/.test(lower);
+
+  if (yes) {
+    var fixes = _pendingProactiveIssues
+      .filter(function(i){ return i.type==='wrong_category' && i.suggestedCat; })
+      .map(function(i){ return { fbKey:i.fbKey, updates:{ category:i.suggestedCat } }; });
+
+    if (!fixes.length) {
+      appendChatMsg('ai','Wala akong specific na auto-fix para dito. Sabihin mo kung alin ang gusto mong ayusin.');
+      _pendingProactiveIssues = null;
+      return true;
+    }
+
+    _pendingAction = { type:'bulk_fix', targets:fixes, reason:'Proactive category fix', reOrganize:true };
+    _pendingProactiveIssues = null;
+
+    var preview = 'Ito ang ifi-fix ko:\n\n';
+    fixes.forEach(function(f){
+      var n = window.allNotes.find(function(x){ return x.fbKey===f.fbKey; });
+      if (n) preview += '• "'+n.title+'" → ['+f.updates.category+']\n';
+    });
+    preview += '\nI-confirm? ("oo" / "hindi")';
+    appendChatMsg('ai', preview);
+    return true;
+  }
+
+  if (no) {
+    (_pendingProactiveIssues||[]).forEach(function(i){
+      if (AI_SESSION.declinedSuggestions.indexOf(i.fbKey)===-1)
+        AI_SESSION.declinedSuggestions.push(i.fbKey);
+    });
+    _pendingProactiveIssues = null;
+    appendChatMsg('ai','Sige, skip muna. Sabihin mo kung may gusto kang gawin 😊');
+    return true;
+  }
+
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────
 // MAIN SEND
 // ─────────────────────────────────────────────────────────────
 async function sendAIChat() {
-  var input=document.getElementById('ai-chat-input');
-  var msg=input&&input.value&&input.value.trim();
+  var input = document.getElementById('ai-chat-input');
+  var msg = input && input.value && input.value.trim();
   if (!msg) return;
   input.value=''; input.style.height='';
-  appendChatMsg('user',msg);
+  appendChatMsg('user', msg);
+  AI_SESSION.messageCount++;
 
-  // ── Pending confirmation ─────────────────────────────────
+  // ── 1. Pending note-action confirmation ─────────────────
   if (_pendingAction) {
-    var lower0=msg.toLowerCase();
-    var yes=/^(oo|yes|yep|confirm|go|sige|ok|tara|push|1\b|paki|gawin|proceed|ayan|yup|sure)/i.test(lower0);
-    var no=/^(hindi|no|nope|cancel|ayaw|stop|huwag|wag|2\b|di na)/i.test(lower0);
+    var lower0 = msg.toLowerCase();
+    var yes = /^(oo|yes|yep|confirm|go|sige|ok|tara|push|1\b|paki|gawin|proceed|ayan|yup|sure)/i.test(lower0);
+    var no  = /^(hindi|no|nope|cancel|ayaw|stop|huwag|wag|2\b|di na)/i.test(lower0);
     if (yes) {
       var pa=_pendingAction; _pendingAction=null;
       AI_CHAT_HISTORY.push({role:'user',content:msg});
@@ -523,17 +750,40 @@ async function sendAIChat() {
       scrollChatToBottom(); return;
     }
     if (no) {
+      if (_pendingAction && _pendingAction.targets) {
+        _pendingAction.targets.forEach(function(t){
+          if (AI_SESSION.declinedSuggestions.indexOf(t.fbKey)===-1)
+            AI_SESSION.declinedSuggestions.push(t.fbKey);
+        });
+      }
       _pendingAction=null;
       AI_CHAT_HISTORY.push({role:'user',content:msg});
-      var r0='Sige, cancelled.';
-      AI_CHAT_HISTORY.push({role:'assistant',content:r0});
-      appendChatMsg('ai',r0);
+      appendChatMsg('ai','Sige, cancelled.');
+      AI_CHAT_HISTORY.push({role:'assistant',content:'Cancelled.'});
       scrollChatToBottom(); return;
     }
     _pendingAction=null;
   }
 
-  // ── Direct JS handlers (fast, zero hallucination) ────────
+  // ── 2. Proactive suggestion confirm/decline ──────────────
+  var handledProactive = await tryProactiveConfirm(msg);
+  if (handledProactive) {
+    AI_CHAT_HISTORY.push({role:'user',content:msg});
+    AI_CHAT_HISTORY.push({role:'assistant',content:'(proactive handled)'});
+    scrollChatToBottom(); return;
+  }
+
+  // ── 3. Intent detection — fast-path routing ──────────────
+  var intentResult = detectIntent(msg);
+
+  if (intentResult && intentResult.intent === 'memory_view') {
+    showMemoryDirect();
+    AI_CHAT_HISTORY.push({role:'user',content:msg});
+    AI_CHAT_HISTORY.push({role:'assistant',content:'(memory view)'});
+    scrollChatToBottom(); return;
+  }
+
+  // ── 4. Direct JS handlers ────────────────────────────────
   var didDelete   = await tryDirectMemoryDelete(msg);
   var didBehavior = !didDelete && await tryDirectBehaviorSave(msg);
   if (didDelete||didBehavior) {
@@ -542,17 +792,27 @@ async function sendAIChat() {
     scrollChatToBottom(); return;
   }
 
-  // ── Normal AI call ───────────────────────────────────────
+  // ── 5. Full AI call — with augmented context ─────────────
+  // Inject detected intent as a hint to the AI
+  var augmentedMsg = intentResult
+    ? msg + '\n[DETECTED INTENT: '+intentResult.intent+']'
+    : msg;
+
   AI_CHAT_HISTORY.push({role:'user',content:msg});
   var tid=appendChatTyping();
   setSendBtn(true);
 
+  // Use longer history window for better context
+  var historyForAI = AI_CHAT_HISTORY.slice(-20).slice();
+  var lastIdx = historyForAI.length - 1;
+  historyForAI[lastIdx] = {role:'user', content:augmentedMsg};
+
   try {
     var res=await fetch(GROQ_URL,{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'llama-3.3-70b-versatile',max_tokens:1000,
-        messages:[{role:'system',content:buildAIInstructorPrompt()}].concat(AI_CHAT_HISTORY.slice(-16))
+        model:'llama-3.3-70b-versatile', max_tokens:1200,
+        messages:[{role:'system',content:buildAIInstructorPrompt()}].concat(historyForAI)
       })
     });
     var data=await res.json();
@@ -573,9 +833,9 @@ async function sendAIChat() {
         appendChatMsg('ai',cleanReply||'Error parsing action.'); setSendBtn(false); scrollChatToBottom(); return;
       }
 
-      var isMemAction = ['add_memory','update_memory','remove_memory',
-                         'bulk_remove_memory','clear_all_memory','save_behavior_rule'].indexOf(actionObj.type)!==-1;
-      var isNoteAction = ['fix_note','bulk_fix'].indexOf(actionObj.type)!==-1;
+      var isMemAction=['add_memory','update_memory','remove_memory',
+                        'bulk_remove_memory','clear_all_memory','save_behavior_rule'].indexOf(actionObj.type)!==-1;
+      var isNoteAction=['fix_note','bulk_fix'].indexOf(actionObj.type)!==-1;
 
       if (isMemAction) {
         var mr=await executeAIAction(actionObj);
@@ -588,7 +848,7 @@ async function sendAIChat() {
           var lines=actionObj.targets.map(function(t){
             var n=window.allNotes.find(function(x){return x.fbKey===t.fbKey;});
             var ch=Object.entries(t.updates||{}).map(function(kv){return kv[0]+'="'+kv[1]+'"';}).join(', ');
-            return n?'- "'+n.title+'" → '+ch:'- fbKey:'+t.fbKey+' → '+ch;
+            return n?'• "'+n.title+'" → '+ch:'• fbKey:'+t.fbKey+' → '+ch;
           });
           preview+='\n\nMaaapektuhan ('+lines.length+' notes):\n'+lines.slice(0,10).join('\n')+(lines.length>10?'\n...+'+(lines.length-10)+' pa':'');
         } else if (actionObj.type==='fix_note') {
@@ -653,7 +913,7 @@ function scrollChatToBottom(){
 function escChat(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // ─────────────────────────────────────────────────────────────
-// SHOW / EDIT MEMORY (direct, no AI)
+// SHOW / EDIT MEMORY
 // ─────────────────────────────────────────────────────────────
 function showMemoryDirect(){
   var entries=Object.entries(aiMemory||{});
@@ -664,55 +924,55 @@ function showMemoryDirect(){
   var rules    =entries.filter(function(e){return e[1].categoryRule;});
   var topics   =entries.filter(function(e){return !e[1].behaviorRule&&!e[1].categoryRule&&e[1].category!=='BEHAVIOR';});
 
-  var msg='AI Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+'\n'+'='.repeat(36)+'\n\n';
+  var msg='🧠 AI Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+'\n'+'═'.repeat(36)+'\n\n';
   if (behaviors.length){
-    msg+='BEHAVIOR RULES ('+behaviors.length+') — instructions na sinusunod ko:\n';
+    msg+='🔒 BEHAVIOR RULES ('+behaviors.length+'):\n';
     behaviors.forEach(function(kv){
-      msg+='• '+kv[1].title+'\n  "'+( kv[1].behaviorRule||kv[1].summary)+'"\n  key: '+kv[0]+'\n\n';
+      msg+='  • '+kv[1].title+'\n    "'+( kv[1].behaviorRule||kv[1].summary)+'"\n    key: '+kv[0]+'\n\n';
     });
   }
   if (rules.length){
-    msg+='CATEGORY RULES ('+rules.length+'):\n';
+    msg+='📋 CATEGORY RULES ('+rules.length+'):\n';
     rules.forEach(function(kv){
-      msg+='• ['+kv[1].category+'] '+kv[1].title+'\n  Rule: "'+kv[1].categoryRule+'"\n  key: '+kv[0]+'\n\n';
+      msg+='  • ['+kv[1].category+'] '+kv[1].title+'\n    "'+kv[1].categoryRule+'"\n    key: '+kv[0]+'\n\n';
     });
   }
   if (topics.length){
-    msg+='LEARNED TOPICS ('+topics.length+'):\n';
+    msg+='💡 LEARNED TOPICS ('+topics.length+'):\n';
     topics.forEach(function(kv){
       var s=String(kv[1].summary||'').slice(0,80)+(String(kv[1].summary||'').length>80?'...':'');
-      msg+='• ['+kv[1].category+'] '+kv[1].title+'\n  '+s+'\n  key: '+kv[0]+'\n\n';
+      msg+='  • ['+kv[1].category+'] '+kv[1].title+'\n    '+s+'\n    key: '+kv[0]+'\n\n';
     });
   }
-  msg+='Para mag-delete: "tanggalin sa memory [key o title]"';
+  msg+='💬 Para mag-delete: "tanggalin sa memory [key o title]"';
   appendChatMsg('ai',msg);
 }
 
 function editMemoryDirect(){
   var entries=Object.entries(aiMemory||{});
   if (!entries.length){appendChatMsg('ai','Walang memory entries pa.');return;}
-  var msg='Edit Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+':\n\n';
+  var msg='✏️ Edit Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+':\n\n';
   entries.forEach(function(kv,i){
-    var extra=kv[1].categoryRule?'\n  Rule: "'+kv[1].categoryRule+'"'
-             :kv[1].behaviorRule?'\n  Behavior: "'+kv[1].behaviorRule+'"':'';
-    msg+=(i+1)+'. ['+kv[1].category+'] '+kv[1].title+extra+'\n  key: '+kv[0]+'\n\n';
+    var extra=kv[1].categoryRule?'\n    Rule: "'+kv[1].categoryRule+'"'
+             :kv[1].behaviorRule?'\n    Behavior: "'+kv[1].behaviorRule+'"':'';
+    msg+=(i+1)+'. ['+kv[1].category+'] '+kv[1].title+extra+'\n    key: '+kv[0]+'\n\n';
   });
   msg+='Para mag-delete: "tanggalin sa memory [key]"\nPara mag-edit: "baguhin ang [key]"';
   appendChatMsg('ai',msg);
 }
 
 // ─────────────────────────────────────────────────────────────
-// QUICK PROMPTS  (collapsible)
+// QUICK PROMPTS
 // ─────────────────────────────────────────────────────────────
 var AI_QUICK_PROMPTS=[
-  {label:'Scan for errors', text:'I-scan mo ang lahat ng notes ko at sabihin mo kung alin ang posibleng mali ang category, title, o content. Ipakita bilang numbered list.'},
-  {label:'Fix one note',    text:'Gusto kong ayusin ang isang specific na note. Itanong mo sa akin kung alin.'},
-  {label:'Bulk fix',        text:'Gusto kong i-bulk fix ang category ng maraming notes. Itanong mo kung anong category ang papalitan at ano ang tamang category.'},
-  {label:'Add rule',        text:'Gusto ko magdagdag ng category rule sa memory. Itanong mo sa akin ang details.'},
-  {label:'View memory',     action:'showMemoryDirect'},
-  {label:'Notes overview',  text:'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category?'},
-  {label:'Edit memory',     action:'editMemoryDirect'},
-  {label:'Clear memory',    text:'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna.'},
+  {label:'🔍 Scan notes',   text:'I-scan mo ang lahat ng notes ko at sabihin mo kung alin ang posibleng mali ang category, title, o content.'},
+  {label:'🔧 Fix one note', text:'Gusto kong ayusin ang isang specific na note. Itanong mo sa akin kung alin.'},
+  {label:'⚡ Bulk fix',     text:'Gusto kong i-bulk fix ang category ng maraming notes. Itanong mo kung anong category ang papalitan.'},
+  {label:'📋 Add rule',     text:'Gusto ko magdagdag ng category rule sa memory. Itanong mo sa akin ang details.'},
+  {label:'🧠 View memory',  action:'showMemoryDirect'},
+  {label:'📊 Overview',     text:'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category?'},
+  {label:'✏️ Edit memory',  action:'editMemoryDirect'},
+  {label:'🗑️ Clear memory', text:'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna.'},
 ];
 
 function renderQuickPrompts(){
@@ -821,15 +1081,27 @@ function openAIChat(){
       var myNc=(window.allNotes||[]).filter(function(n){return isMyNote(n);}).length;
       var mc=Object.keys(aiMemory||{}).length;
       var br=getBehaviorRules().length;
+
       appendChatMsg('ai',
         'Hoy! AI Instructor ako.\n\n'+
-        'Notes mo: '+myNc+' | Memory: '+mc+' entr'+(mc!==1?'ies':'y')+
-        (br?' | '+br+' behavior rule'+(br>1?'s':'')+' active ✓':'')+
-        (cleaned.length?'\nAuto-cleaned: '+cleaned.length+' junk entr'+(cleaned.length>1?'ies':'y'):'')+'\n\n'+
-        'Lahat ng instructions mo sa memory ay sinusunod ko sa bawat action.\n'+
-        'Mag-type ng "huwag mag-save ng [keyword]" para mag-add ng rule.'
+        '📝 Notes: '+myNc+' | 🧠 Memory: '+mc+' entr'+(mc!==1?'ies':'y')+
+        (br?' | '+br+' rule'+(br>1?'s':'')+' active ✓':'')+
+        (cleaned.length?'\n🧹 Auto-cleaned: '+cleaned.length+' junk entr'+(cleaned.length>1?'ies':'y'):'')+'\n\n'+
+        'Tanungin mo ako ng kahit ano — kahit "ayusin mo notes ko" o "linis memory" ay gets ko na 😎'
       );
-      renderQuickPrompts();
+
+      // Proactive analysis after short delay
+      setTimeout(function(){
+        if (myNc > 0) {
+          var issues = analyzeNotesProactively();
+          var proactiveMsg = buildProactiveMessage(issues);
+          if (proactiveMsg) {
+            _pendingProactiveIssues = issues;
+            appendChatMsg('ai', proactiveMsg);
+          }
+        }
+        renderQuickPrompts();
+      }, 800);
     });
   }
   setTimeout(function(){var inp=document.getElementById('ai-chat-input');if(inp)inp.focus();},200);
