@@ -351,7 +351,7 @@ function buildAIInstructorPrompt() {
 
   return [
 '================================================================',
-'IKAW: AI Instructor ng Notes AI app ni '+((window._currentUser&&window._currentUser.displayName)||'User')+'.',
+'IKAW: AI learner ng Notes AI app ni '+((window._currentUser&&window._currentUser.displayName)||'User')+'.',
 'AWTORIDAD: FULL POWER sa notes at memory. Maaari kang mag-decide nang mag-isa.',
 'LAYUNIN: Maging MATALINO, PROACTIVE, at TUMPAK. Huwag magtanong ng hindi kailangan.',
 '================================================================',
@@ -1083,7 +1083,7 @@ function openAIChat(){
       var br=getBehaviorRules().length;
 
       appendChatMsg('ai',
-        'Hoy! AI Instructor ako.\n\n'+
+        'Hoy! AI learner ako.\n\n'+
         '📝 Notes: '+myNc+' | 🧠 Memory: '+mc+' entr'+(mc!==1?'ies':'y')+
         (br?' | '+br+' rule'+(br>1?'s':'')+' active ✓':'')+
         (cleaned.length?'\n🧹 Auto-cleaned: '+cleaned.length+' junk entr'+(cleaned.length>1?'ies':'y'):'')+'\n\n'+
