@@ -1,76 +1,269 @@
 // ============================================================
-// app-ai.js — AI Instructor FAB + Chat Panel
+// app-ai.js  —  AI Instructor  (full rewrite)
 // ============================================================
 
 const AI_CHAT_HISTORY = [];
-let aiChatOpen = false;
-let _pendingAction = null;
+let aiChatOpen        = false;
+let _pendingAction    = null;
 let _quickPromptsVisible = true;
 
-// ── Build live system prompt ──────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// BEHAVIOR RULES ENGINE
+// All user instructions are stored in aiMemory under category
+// "BEHAVIOR".  These are enforced here in JS AND injected into
+// every AI system-prompt so the AI itself also obeys them.
+// ─────────────────────────────────────────────────────────────
+
+/** Return all saved behavior rules as an array of strings. */
+function getBehaviorRules() {
+  return Object.values(aiMemory || {})
+    .filter(function(v){ return v.category === 'BEHAVIOR' || v.behaviorRule; })
+    .map(function(v){ return String(v.behaviorRule || v.summary || ''); })
+    .filter(Boolean);
+}
+
+/**
+ * Ask the AI to decide — given the current behavior rules —
+ * whether a note should be saved to memory.
+ * Returns: { skip: bool, reason: string }
+ * Pure JS fallback included so this never throws.
+ */
+async function shouldSkipMemorySave(note) {
+  // --- JS-level fast checks (always run first) ---
+  var title   = String(note.title   || '').toLowerCase().trim();
+  var raw     = String(note.rawNote || note.organizedContent || '').toLowerCase();
+  var summary = String(note.summary || '').toLowerCase();
+
+  // 1. Built-in: "walang mahalagang impormasyon" in summary
+  if (/walang mahalagang impormasyon/.test(summary)) return { skip:true, reason:'walang laman' };
+
+  // 2. Built-in: title is literally just "test","testing","try","sample","pantest"
+  if (/^(test|testing|try+|sample|pantest|dummy|placeholder)(\s+(note|notes|lang|ito|nito|only|cmd|command))?$/.test(title)) {
+    return { skip:true, reason:'test/try title' };
+  }
+
+  // 3. User behavior rules — parse keywords dynamically
+  var rules = getBehaviorRules();
+  for (var ri = 0; ri < rules.length; ri++) {
+    var ruleText = rules[ri].toLowerCase();
+
+    // What is the rule saying to SKIP?
+    // Pattern: "huwag ... save ... [keyword]" or "kapag [keyword] lang ... huwag"
+    // Extract the subject keywords from the rule
+    var skipKeywords = extractSkipKeywords(ruleText);
+    for (var ki = 0; ki < skipKeywords.length; ki++) {
+      var kw = skipKeywords[ki];
+      // Match keyword anywhere in the title (word boundary)
+      if (new RegExp('(^|\\s|_)' + escapeRegex(kw) + '(\\s|_|$)').test(title)) {
+        return { skip:true, reason:'user rule: ' + rules[ri].slice(0,60) };
+      }
+    }
+  }
+
+  return { skip:false, reason:'' };
+}
+
+/** Extract the "things to skip" from a rule sentence. */
+function extractSkipKeywords(ruleText) {
+  var keywords = [];
+
+  // Known skip-trigger words
+  var knownSkip = ['test','testing','try','sample','pantest','dummy','placeholder',
+                   'blank','empty','blangko','walang laman','temp','temporary'];
+  knownSkip.forEach(function(k){
+    if (ruleText.indexOf(k) !== -1) keywords.push(k);
+  });
+
+  // Also extract words that come AFTER "kapag" and BEFORE "lang/huwag/di"
+  // e.g. "kapag try lang" → "try"
+  var m = ruleText.match(/kapag\s+(\w+)\s+(lang|huwag|di|hindi)/);
+  if (m && m[1] && keywords.indexOf(m[1]) === -1) keywords.push(m[1]);
+
+  // Words after "ng" that precede "notes/note"
+  // e.g. "huwag mag-save ng testing notes" → "testing"
+  var m2 = ruleText.match(/\bng\s+(\w+)\s+notes?\b/);
+  if (m2 && m2[1] && keywords.indexOf(m2[1]) === -1) keywords.push(m2[1]);
+
+  return keywords;
+}
+
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+
+// ─────────────────────────────────────────────────────────────
+// OVERRIDE window.updateAIMemory
+// Install as early as possible — if the function isn't defined
+// yet, we poll until it is (max 3s).
+// ─────────────────────────────────────────────────────────────
+(function installMemoryOverride() {
+  var attempts = 0;
+  function tryInstall() {
+    if (typeof window.updateAIMemory === 'function' && !window._aiMemoryOverrideInstalled) {
+      var _orig = window.updateAIMemory;
+      window.updateAIMemory = async function(note) {
+        var check = await shouldSkipMemorySave(note);
+        if (check.skip) {
+          console.log('[AI Memory] SKIP "' + (note.title||'?') + '" — ' + check.reason);
+          return;
+        }
+        return _orig.apply(this, arguments);
+      };
+      window._aiMemoryOverrideInstalled = true;
+      console.log('[app-ai.js] updateAIMemory override installed ✓');
+      return;
+    }
+    if (attempts++ < 30) setTimeout(tryInstall, 100); // retry up to 3s
+  }
+  // Try immediately (in case script loads after app.html defines it)
+  // and also on DOMContentLoaded
+  tryInstall();
+  document.addEventListener('DOMContentLoaded', tryInstall);
+})();
+
+// ─────────────────────────────────────────────────────────────
+// AUTO-CLEAN JUNK MEMORY ON PANEL OPEN
+// ─────────────────────────────────────────────────────────────
+async function cleanJunkMemoryEntries() {
+  var keys = Object.keys(aiMemory || {});
+  var cleaned = [];
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var v = aiMemory[k];
+    if (v.category === 'BEHAVIOR') continue; // never delete behavior rules
+    var check = await shouldSkipMemorySave(Object.assign({ title: v.title }, v));
+    if (check.skip) {
+      try {
+        if (window._db && window._update && window._ref)
+          await window._update(window._ref(window._db, 'ai_memory'), { [k]: null });
+        delete aiMemory[k];
+        cleaned.push(v.title || k);
+      } catch(e) { console.warn('Cleanup failed:', k, e.message); }
+    }
+  }
+  if (cleaned.length) updateMemoryBadge();
+  return cleaned;
+}
+
+// ─────────────────────────────────────────────────────────────
+// SYSTEM PROMPT  —  full context, full authority
+// ─────────────────────────────────────────────────────────────
 function buildAIInstructorPrompt() {
   var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
+
   var notesBlock = myNotes.length
     ? myNotes.map(function(n, i) {
         var t = String(n.title||'').replace(/"/g,"'").slice(0,60);
         var r = String(n.rawNote||'').replace(/\n/g,' ').replace(/"/g,"'").slice(0,100);
-        return '['+i+'] fbKey="'+n.fbKey+'" | title="'+t+'" | cat="'+n.category+'" | public='+(n.isPublic===true)+(r?' | raw="'+r+'"':'')+(n.imageData?' | hasImage=true':'');
+        return '['+i+'] fbKey="'+n.fbKey
+          +'" | title="'+t
+          +'" | cat="'+n.category
+          +'" | public='+(n.isPublic===true)
+          +(r?' | raw="'+r+'"':'')
+          +(n.imageData?' | hasImage=true':'');
       }).join('\n')
     : '(wala pang notes)';
 
   var memEntries = Object.entries(aiMemory || {});
   var memBlock = memEntries.length
     ? memEntries.map(function(kv) {
-        var k=kv[0],v=kv[1];
+        var k=kv[0], v=kv[1];
         var s=String(v.summary||'').slice(0,80).replace(/"/g,"'");
-        var rule=v.categoryRule?' | RULE: "'+v.categoryRule+'"':'';
-        var beh=v.behaviorRule?' | BEHAVIOR: "'+v.behaviorRule+'"':'';
-        return 'key="'+k+'" | title="'+(v.title||'')+'" | cat="'+(v.category||'')+'" | summary="'+s+'"'+rule+beh;
+        var extras = (v.categoryRule ? ' | RULE:"'+v.categoryRule+'"' : '')
+                   + (v.behaviorRule ? ' | BEHAVIOR:"'+v.behaviorRule+'"' : '');
+        return 'key="'+k+'" | cat="'+(v.category||'')+'" | title="'+(v.title||'')+'" | summary="'+s+'"'+extras;
       }).join('\n')
-    : '(walang memory entries)';
+    : '(walang entries)';
 
-  // Include behavior rules as explicit instructions
-  var behaviorBlock = memEntries
-    .filter(function(kv){ return kv[1].behaviorRule || kv[1].category==='BEHAVIOR'; })
-    .map(function(kv){ return '- '+( kv[1].behaviorRule||kv[1].summary); })
-    .join('\n');
+  var behaviorRules = getBehaviorRules();
+  var behaviorBlock = behaviorRules.length
+    ? behaviorRules.map(function(r,i){ return (i+1)+'. '+r; }).join('\n')
+    : '(wala)';
 
-  return 'Ikaw ay ang AI Instructor ng Notes AI app.\n\n'+
-'PINAKA-IMPORTANTENG RULES:\n'+
-'1. NOTES at MEMORY ay MAGKAIBA. fix_note/bulk_fix = para sa NOTES. add/update/remove_memory = para sa MEMORY.\n'+
-'2. Kapag "tanggalin sa memory" o "delete sa memory" — gumamit ng remove_memory, HINDI bulk_fix.\n'+
-'3. fbKey sa fix_note/bulk_fix ay KOPYA NANG EKSAKTO mula sa USER NOTES list sa ibaba.\n'+
-'4. Notes actions = kailangan ng "DAPAT I-CONFIRM:" at [ACTION] tag.\n'+
-'5. Memory actions = direkta ang [ACTION], walang confirm.\n'+
-'6. Maikli at malinaw. Filipino/English.\n'+
-(behaviorBlock ? '\nUSER BEHAVIOR RULES (SUNDIN MO PALAGI):\n'+behaviorBlock+'\n' : '')+
-'\nACTION FORMATS:\n'+
-'fix_note:      {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT"},"reOrganize":true}\n'+
-'bulk_fix:      {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}...],"reason":"...","reOrganize":true}\n'+
-'add_memory:    {"type":"add_memory","data":{"key":"k","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}\n'+
-'update_memory: {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","behaviorRule":"..."}}\n'+
-'remove_memory: {"type":"remove_memory","data":{"key":"EXACT_KEY"}}\n'+
-'clear_all_memory: {"type":"clear_all_memory"}\n\n'+
-'======================================\n'+
-'USER NOTES ('+myNotes.length+'):\n'+
-'======================================\n'+
-notesBlock+'\n\n'+
-'======================================\n'+
-'AI MEMORY ('+memEntries.length+'):\n'+
-'======================================\n'+
-memBlock;
+  return [
+'================================================================',
+'IKAW: AI Instructor ng Notes AI app ni '+((window._currentUser&&window._currentUser.displayName)||'User')+'.',
+'AWTORIDAD: Mayroon kang FULL POWER sa notes at memory ng user.',
+'           Maaari kang mag-read, mag-fix, mag-organize, mag-delete ng memory entries.',
+'           Maaari kang sumunosig at gumawa ng desisyon nang mag-isa.',
+'================================================================',
+'',
+'════════════════════ BEHAVIOR RULES ════════════════════════════',
+'Ito ang mga UTOS NG USER na DAPAT MONG SUNDIN PALAGI:',
+behaviorBlock,
+'',
+'⚠️  ENFORCEMENT: Bago ka mag-add_memory ng kahit anong note,',
+'    i-check mo muna kung lumalabas ito sa behavior rules sa itaas.',
+'    Kung ang note ay "test/testing/try/sample/pantest" o kahit',
+'    anong ibinigay na skip-keyword ng user — HUWAG I-SAVE sa memory.',
+'════════════════════════════════════════════════════════════════',
+'',
+'CORE RULES:',
+'1. NOTES ≠ MEMORY. fix_note/bulk_fix = NOTES. add/remove_memory = MEMORY.',
+'2. Kapag "tanggalin sa memory" → remove_memory action. HINDI bulk_fix.',
+'3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST.',
+'4. Notes actions (fix_note, bulk_fix): kailangan ng "DAPAT I-CONFIRM:" + [ACTION].',
+'5. Memory actions (add/update/remove/clear): direkta ang [ACTION], walang confirm.',
+'6. Kapag may tatanggalin/baguhin → gawin mo, huwag magtanong ng sobra.',
+'7. Sagot: maikli, malinaw, Filipino/English.',
+'',
+'ACTION FORMATS (gamitin lang ang kailangan):',
+'fix_note:          {"type":"fix_note","fbKey":"EXACT_FBKEY","updates":{"category":"CAT","title":"..."},"reOrganize":true}',
+'bulk_fix:          {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}],"reason":"...","reOrganize":true}',
+'add_memory:        {"type":"add_memory","data":{"key":"slug","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}',
+'update_memory:     {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","summary":"...","behaviorRule":"..."}}',
+'remove_memory:     {"type":"remove_memory","data":{"key":"EXACT_KEY"}}',
+'bulk_remove_memory:{"type":"bulk_remove_memory","keys":["key1","key2"]}',
+'clear_all_memory:  {"type":"clear_all_memory"}',
+'save_behavior_rule:{"type":"save_behavior_rule","data":{"key":"behavior_slug","title":"Short title","behaviorRule":"The exact rule"}}',
+'',
+'TAG: [ACTION]{...}[/ACTION] — ilagay sa DULO ng message.',
+'',
+'================================================================',
+'USER NOTES ('+myNotes.length+'):',
+'================================================================',
+notesBlock,
+'',
+'================================================================',
+'AI MEMORY ('+memEntries.length+'):',
+'================================================================',
+memBlock,
+  ].join('\n');
 }
 
-// ── Execute action ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// EXECUTE ACTION
+// ─────────────────────────────────────────────────────────────
 async function executeAIAction(actionObj) {
   var type = actionObj.type;
 
+  // ── save_behavior_rule ─────────────────────────────────────
+  if (type === 'save_behavior_rule') {
+    var d = actionObj.data || {};
+    if (!d.behaviorRule) return 'Missing behaviorRule.';
+    var bkey = (d.key || 'behavior_'+Date.now()).toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,60);
+    var entry = {
+      title: d.title || 'Behavior Rule',
+      category: 'BEHAVIOR',
+      summary: d.behaviorRule,
+      behaviorRule: d.behaviorRule,
+      keyPoints: [],
+      updated: Date.now()
+    };
+    try {
+      if (window._db&&window._update&&window._ref)
+        await window._update(window._ref(window._db,'ai_memory'),{[bkey]:entry});
+      aiMemory[bkey] = entry;
+      updateMemoryBadge();
+      return 'Behavior rule saved: "'+d.behaviorRule+'"';
+    } catch(e) { return 'Save failed: '+e.message; }
+  }
+
+  // ── fix_note ───────────────────────────────────────────────
   if (type === 'fix_note') {
     var fbKey=actionObj.fbKey, updates=actionObj.updates, reOrganize=actionObj.reOrganize;
     if (!fbKey||!updates) return 'Missing fbKey or updates.';
     var n=window.allNotes.find(function(x){return x.fbKey===fbKey;});
     if (!n) return 'Note not found (fbKey: '+fbKey+')';
-    if (!isMyNote(n)) return 'Hindi mo to note: "'+n.title+'"';
+    if (!isMyNote(n)) return 'Hindi mo note ito: "'+n.title+'"';
     if (updates.category) updates.category=updates.category.toUpperCase().replace(/\s+/g,'_');
     var finalUpdates=Object.assign({},updates);
     if (reOrganize!==false&&(n.rawNote||n.organizedContent)) {
@@ -82,16 +275,18 @@ async function executeAIAction(actionObj) {
             {role:'system',content:buildSysPrompt()+hint},
             {role:'user',content:'I-re-organize:\n\n'+content}
           ]})});
-        var data=await res.json();
-        if (!data.error) {
-          var raw=(data.choices[0].message.content||'').replace(/```json|```/g,'').trim();
-          var si=raw.indexOf('{'),ei=raw.lastIndexOf('}');
-          var p=JSON.parse(si!==-1&&ei!==-1?raw.slice(si,ei+1):raw);
+        var rdata=await res.json();
+        if (!rdata.error) {
+          var rraw=(rdata.choices[0].message.content||'').replace(/```json|```/g,'').trim();
+          var rsi=rraw.indexOf('{'),rei=rraw.lastIndexOf('}');
+          var rp=JSON.parse(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw);
           function es(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
           function ea(v){return Array.isArray(v)?v.map(es).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-          finalUpdates={title:updates.title||es(p.title)||n.title,
-            category:updates.category||es(p.category).toUpperCase().replace(/\s+/g,'_')||n.category,
-            summary:es(p.summary),keyPoints:ea(p.keyPoints),organizedContent:es(p.organizedContent)};
+          finalUpdates={
+            title:updates.title||es(rp.title)||n.title,
+            category:updates.category||es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
+            summary:es(rp.summary),keyPoints:ea(rp.keyPoints),organizedContent:es(rp.organizedContent)
+          };
           if (updates.isPublic!==undefined) finalUpdates.isPublic=updates.isPublic;
         }
       } catch(re){console.warn('Re-org failed:',re.message);}
@@ -99,12 +294,13 @@ async function executeAIAction(actionObj) {
     try {
       if (window._db&&window._update&&window._ref) {
         await window._update(window._ref(window._db,'notes/'+fbKey),finalUpdates);
-        await updateAIMemory(Object.assign({},n,finalUpdates));
+        await window.updateAIMemory(Object.assign({},n,finalUpdates)); // override handles skip
       } else {Object.assign(n,finalUpdates);renderApp();}
-      return 'Fixed & re-organized: "'+n.title+'"';
+      return 'Fixed: "'+n.title+'"';
     } catch(e){return 'Fix failed: '+e.message;}
   }
 
+  // ── bulk_fix ───────────────────────────────────────────────
   if (type === 'bulk_fix') {
     var targets=actionObj.targets,reason=actionObj.reason,reOrg=actionObj.reOrganize;
     if (!targets||!targets.length) return 'Walang targets.';
@@ -112,208 +308,214 @@ async function executeAIAction(actionObj) {
     for (var ti=0;ti<targets.length;ti++) {
       var tgt=targets[ti],tfbKey=tgt.fbKey,tupdates=tgt.updates;
       var tn=window.allNotes.find(function(x){return x.fbKey===tfbKey;});
-      if (!tn||!isMyNote(tn)){results.push('Skip "'+tfbKey+'"');continue;}
+      if (!tn||!isMyNote(tn)){results.push('Skip: '+tfbKey);continue;}
       if (tupdates.category) tupdates.category=tupdates.category.toUpperCase().replace(/\s+/g,'_');
       var tFinal=Object.assign({},tupdates);
       if (reOrg!==false&&tupdates.category&&(tn.rawNote||tn.organizedContent)) {
         try {
-          var tc=tn.rawNote&&tn.rawNote!=='[image]'?tn.rawNote:tn.organizedContent||tn.title;
-          var th='\n\nIMPORTANT: Tamang category ay "'+tupdates.category+'". Gamitin ito.';
+          var tc2=tn.rawNote&&tn.rawNote!=='[image]'?tn.rawNote:tn.organizedContent||tn.title;
+          var th2='\n\nIMPORTANT: Tamang category ay "'+tupdates.category+'". Gamitin ito.';
           var tres=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
             body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
-              {role:'system',content:buildSysPrompt()+th},
-              {role:'user',content:'I-re-organize:\n\n'+tc}
+              {role:'system',content:buildSysPrompt()+th2},
+              {role:'user',content:'I-re-organize:\n\n'+tc2}
             ]})});
           var tdata=await tres.json();
           if (!tdata.error) {
             var traw=(tdata.choices[0].message.content||'').replace(/```json|```/g,'').trim();
-            var tsi=traw.indexOf('{'),tei=traw.lastIndexOf('}');
-            var tp=JSON.parse(tsi!==-1&&tei!==-1?traw.slice(tsi,tei+1):traw);
+            var tsi2=traw.indexOf('{'),tei2=traw.lastIndexOf('}');
+            var tp2=JSON.parse(tsi2!==-1&&tei2!==-1?traw.slice(tsi2,tei2+1):traw);
             function tes(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
             function tea(v){return Array.isArray(v)?v.map(tes).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-            tFinal={category:tupdates.category,title:tupdates.title||tes(tp.title)||tn.title,
-              summary:tes(tp.summary),keyPoints:tea(tp.keyPoints),organizedContent:tes(tp.organizedContent)};
+            tFinal={category:tupdates.category,title:tupdates.title||tes(tp2.title)||tn.title,
+              summary:tes(tp2.summary),keyPoints:tea(tp2.keyPoints),organizedContent:tes(tp2.organizedContent)};
           }
         } catch(re2){console.warn('Bulk re-org fail:',tn.title,re2.message);}
       }
       try {
         if (window._db&&window._update&&window._ref) {
           await window._update(window._ref(window._db,'notes/'+tfbKey),tFinal);
-          await updateAIMemory(Object.assign({},tn,tFinal));
+          await window.updateAIMemory(Object.assign({},tn,tFinal));
         } else {Object.assign(tn,tFinal);}
-        results.push('"'+tn.title+'" -> ['+tFinal.category+']');
+        results.push('"'+tn.title+'" → ['+tFinal.category+']');
       } catch(e2){results.push('"'+tn.title+'": '+e2.message);}
     }
     renderApp();
-    return 'Bulk fix tapos! ('+results.length+' notes)\n'+results.join('\n')+(reason?'\n\nReason: '+reason:'');
+    return 'Bulk fix done! ('+results.length+')\n'+results.join('\n')+(reason?'\n\nReason: '+reason:'');
   }
 
+  // ── add_memory / update_memory ─────────────────────────────
   if (type==='add_memory'||type==='update_memory') {
-    var d=actionObj.data||{};
-    if (!d.key&&!d.title) return 'Need key or title.';
-    var mk=(d.key||(d.category+'_'+d.title)).toLowerCase().replace(/[^a-z0-9]/g,'_').substring(0,60);
-    var entry={title:d.title||d.key,category:d.category||'OTHER',summary:d.summary||'',keyPoints:d.keyPoints||[],updated:Date.now()};
-    if (d.categoryRule) entry.categoryRule=d.categoryRule;
-    if (d.behaviorRule) entry.behaviorRule=d.behaviorRule;
+    var d2=actionObj.data||{};
+    if (!d2.key&&!d2.title) return 'Need key or title.';
+    var mk=(d2.key||((d2.category||'other')+'_'+d2.title)).toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,60);
+    var ent={title:d2.title||d2.key,category:d2.category||'OTHER',summary:d2.summary||'',
+      keyPoints:d2.keyPoints||[],updated:Date.now()};
+    if (d2.categoryRule) ent.categoryRule=d2.categoryRule;
+    if (d2.behaviorRule) ent.behaviorRule=d2.behaviorRule;
+    // Enforce: don't save junk even via add_memory
+    var chk = await shouldSkipMemorySave(ent);
+    if (chk.skip) return 'Hindi na-save — lumalabas sa behavior rules: '+chk.reason;
     try {
-      if (window._db&&window._update&&window._ref) await window._update(window._ref(window._db,'ai_memory'),{[mk]:entry});
-      aiMemory[mk]=entry;updateMemoryBadge();
-      var saved='Memory '+(type==='add_memory'?'added':'updated')+': "'+(d.title||d.key)+'"';
-      if (d.categoryRule) saved+='\nRule: "'+d.categoryRule+'"';
-      if (d.behaviorRule) saved+='\nBehavior saved: "'+d.behaviorRule+'"';
-      return saved;
+      if (window._db&&window._update&&window._ref)
+        await window._update(window._ref(window._db,'ai_memory'),{[mk]:ent});
+      aiMemory[mk]=ent; updateMemoryBadge();
+      return 'Memory '+(type==='add_memory'?'added':'updated')+': "'+(d2.title||d2.key)+'"'
+        +(d2.categoryRule?'\nRule: "'+d2.categoryRule+'"':'')
+        +(d2.behaviorRule?'\nBehavior: "'+d2.behaviorRule+'"':'');
     } catch(e){return 'Memory save failed: '+e.message;}
   }
 
+  // ── remove_memory ──────────────────────────────────────────
   if (type==='remove_memory') {
     var rk=actionObj.data&&actionObj.data.key;
-    var rmatch=Object.keys(aiMemory).find(function(mk2){
-      return mk2===rk||aiMemory[mk2].title===rk||mk2.includes(String(rk));
+    var rm=Object.keys(aiMemory).find(function(k){
+      return k===rk||aiMemory[k].title===rk||k.includes(String(rk));
     });
-    if (!rmatch) return 'Hindi makita sa memory: "'+rk+'"';
+    if (!rm) return 'Hindi makita: "'+rk+'"';
     try {
-      if (window._db&&window._update&&window._ref) await window._update(window._ref(window._db,'ai_memory'),{[rmatch]:null});
-      var removed=aiMemory[rmatch].title||rmatch;
-      delete aiMemory[rmatch];updateMemoryBadge();
-      return 'Tinanggal sa memory: "'+removed+'"';
+      if (window._db&&window._update&&window._ref)
+        await window._update(window._ref(window._db,'ai_memory'),{[rm]:null});
+      var rtitle=aiMemory[rm].title||rm;
+      delete aiMemory[rm]; updateMemoryBadge();
+      return 'Tinanggal: "'+rtitle+'"';
     } catch(e){return 'Failed: '+e.message;}
   }
 
+  // ── bulk_remove_memory ─────────────────────────────────────
+  if (type==='bulk_remove_memory') {
+    var bkeys=actionObj.keys||[];
+    if (!bkeys.length) return 'Walang keys.';
+    var bremoved=[],bfailed=[];
+    for (var bi=0;bi<bkeys.length;bi++) {
+      var bk=bkeys[bi];
+      var bm=Object.keys(aiMemory).find(function(k){
+        return k===bk||aiMemory[k].title===bk||k.includes(String(bk));
+      });
+      if (!bm){bfailed.push(bk);continue;}
+      try {
+        if (window._db&&window._update&&window._ref)
+          await window._update(window._ref(window._db,'ai_memory'),{[bm]:null});
+        bremoved.push(aiMemory[bm].title||bm);
+        delete aiMemory[bm];
+      } catch(be){bfailed.push(bk+' ('+be.message+')');}
+    }
+    updateMemoryBadge();
+    return (bremoved.length?'Tinanggal ('+bremoved.length+'):\n'+bremoved.map(function(r){return'- '+r;}).join('\n'):'')
+          +(bfailed.length?'\nHindi mahanap:\n'+bfailed.map(function(f){return'- '+f;}).join('\n'):'');
+  }
+
+  // ── clear_all_memory ───────────────────────────────────────
   if (type==='clear_all_memory') {
     try {
       if (window._db&&window._update&&window._ref) {
-        var nulls={};Object.keys(aiMemory).forEach(function(k){nulls[k]=null;});
+        var nulls={};
+        Object.keys(aiMemory).forEach(function(k){nulls[k]=null;});
         if (Object.keys(nulls).length) await window._update(window._ref(window._db,'ai_memory'),nulls);
       }
-      aiMemory={};updateMemoryBadge();
-      return 'AI memory cleared.';
+      aiMemory={}; updateMemoryBadge();
+      return 'Memory cleared.';
     } catch(e){return 'Failed: '+e.message;}
   }
 
-  return 'Unknown type: '+type;
+  return 'Unknown action type: '+type;
 }
 
-// ── Always re-enable send button ─────────────────────────────
-function setSendBtn(disabled) {
-  var sbtn=document.getElementById('ai-chat-send');
-  if (sbtn) sbtn.disabled=!!disabled;
-}
+// ─────────────────────────────────────────────────────────────
+// DIRECT HANDLERS  — JS intercepts before hitting AI
+// These run first for reliability (no AI hallucination possible)
+// ─────────────────────────────────────────────────────────────
 
-// ── SMART fuzzy memory delete — pure JS, no AI needed ────────
-// Returns true if handled so we skip the AI call entirely
+/** Handle "tanggalin/delete sa memory ..." directly. Returns true if handled. */
 async function tryDirectMemoryDelete(msg) {
   var lower = msg.toLowerCase();
-  var hasDeleteIntent = /tanggal|delete|remove|bura|alisin|i-delete|itanggal/.test(lower);
-  var hasMemoryRef = /memory|memorya/.test(lower);
-  if (!hasDeleteIntent || !hasMemoryRef) return false;
+  if (!/tanggal|delete|remove|bura|alisin|i-delete|itanggal/.test(lower)) return false;
+  if (!/memory|memorya/.test(lower)) return false;
 
-  var memKeys = Object.keys(aiMemory);
-  if (!memKeys.length) {
-    appendChatMsg('ai','Wala nang laman ang AI memory.');
-    return true;
-  }
+  var memKeys = Object.keys(aiMemory || {});
+  if (!memKeys.length) { appendChatMsg('ai','Wala nang laman ang AI memory.'); return true; }
 
-  // Strip noise words to get the "subject" keywords the user is referring to
-  var noiseWords = /\b(tanggal|delete|remove|bura|alisin|i-delete|itanggal|sa|ng|ang|yung|memory|memorya|mo|na|lahat|testing|notes|lang|pantest|sample|walang|laman|empty|blangko)\b/g;
-  // Extract meaningful search words from the message (what the user wants to target)
-  // Keep "testing" as a special keyword even though it appears in noise — we want to match entries with "testing" in them
-  var subjectWords = lower
-    .replace(/\b(tanggal|delete|remove|bura|alisin|i-delete|itanggal|sa|ng|ang|yung|memory|memorya|mo|na|lahat)\b/g,' ')
-    .split(/\s+/)
-    .map(function(w){ return w.replace(/[^a-z0-9]/g,''); })
-    .filter(function(w){ return w.length > 2; });
+  // Strip "action + memory" noise words to get subject terms
+  var subject = lower
+    .replace(/\b(tanggal|delete|remove|bura|alisin|i-delete|itanggal|sa|ng|ang|yung|mo|na|lahat|memory|memorya|naman|na|nito|ito)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+  var subjWords = subject.split(' ').map(function(w){return w.replace(/[^a-z0-9]/g,'');}).filter(function(w){return w.length>1;});
 
   var toDelete = [];
   var seen = {};
-
   memKeys.forEach(function(k) {
     if (seen[k]) return;
     var v = aiMemory[k];
-    var titleLower = String(v.title||'').toLowerCase();
-    var kLower = k.toLowerCase();
-
-    // Strategy 1: exact key match in message
-    if (lower.includes(kLower)) { toDelete.push(k); seen[k]=true; return; }
-
-    // Strategy 2: exact full title match in message
-    if (titleLower.length > 3 && lower.includes(titleLower)) { toDelete.push(k); seen[k]=true; return; }
-
-    // Strategy 3: ANY subject word from message found in key words (not all — ANY)
-    if (subjectWords.length > 0) {
-      var keyWords = kLower.replace(/_/g,' ').split(' ').filter(function(w){ return w.length > 2; });
-      var anyMatch = subjectWords.some(function(sw){
-        return keyWords.some(function(kw){ return kw.includes(sw) || sw.includes(kw); });
+    var tl = String(v.title||'').toLowerCase();
+    var kl = k.toLowerCase();
+    // Exact key in message
+    if (lower.includes(kl)) { toDelete.push(k); seen[k]=true; return; }
+    // Exact title in message
+    if (tl.length>2 && lower.includes(tl)) { toDelete.push(k); seen[k]=true; return; }
+    // Any subject word matches any word in key or title
+    if (subjWords.length) {
+      var kwords = kl.replace(/_/g,' ').split(' ').filter(function(w){return w.length>1;});
+      var twords = tl.split(/\s+/).filter(function(w){return w.length>1;});
+      var allWords = kwords.concat(twords);
+      var hit = subjWords.some(function(sw){
+        return allWords.some(function(aw){ return aw===sw||aw.startsWith(sw)||sw.startsWith(aw); });
       });
-      if (anyMatch) { toDelete.push(k); seen[k]=true; return; }
-    }
-
-    // Strategy 4: ANY subject word found in title words
-    if (subjectWords.length > 0) {
-      var titleWords = titleLower.split(/\s+/).filter(function(w){ return w.length > 2; });
-      var anyTitleMatch = subjectWords.some(function(sw){
-        return titleWords.some(function(tw){ return tw.includes(sw) || sw.includes(tw); });
-      });
-      if (anyTitleMatch) { toDelete.push(k); seen[k]=true; return; }
+      if (hit) { toDelete.push(k); seen[k]=true; }
     }
   });
 
   if (!toDelete.length) {
-    var list = memKeys.map(function(k,i){ return (i+1)+'. ['+aiMemory[k].category+'] '+aiMemory[k].title+'  (key: '+k+')'; }).join('\n');
-    appendChatMsg('ai','Alin sa memory entries ang gusto mong tanggalin?\n\n'+list+'\n\nSabihin mo ang exact title o key.');
+    var list = memKeys.filter(function(k){return aiMemory[k].category!=='BEHAVIOR';})
+      .map(function(k,i){return (i+1)+'. ['+aiMemory[k].category+'] '+aiMemory[k].title+' (key: '+k+')';}).join('\n');
+    appendChatMsg('ai','Alin sa memory entries ang gusto mong tanggalin?\n\n'+list+'\n\nSabihin ang exact title o key.');
     return true;
   }
 
-  // Show preview before deleting if more than 3 matches (safety check)
-  var results = [];
-  for (var di=0;di<toDelete.length;di++) {
-    var dk=toDelete[di];
+  var results=[];
+  for (var i=0;i<toDelete.length;i++) {
+    var dk=toDelete[i];
     try {
-      if (window._db&&window._update&&window._ref) await window._update(window._ref(window._db,'ai_memory'),{[dk]:null});
-      results.push('Tinanggal: "'+(aiMemory[dk].title||dk)+'"');
+      if (window._db&&window._update&&window._ref)
+        await window._update(window._ref(window._db,'ai_memory'),{[dk]:null});
+      results.push('Tinanggal: "'+( aiMemory[dk].title||dk)+'"');
       delete aiMemory[dk];
     } catch(de){results.push('Failed "'+dk+'": '+de.message);}
   }
   updateMemoryBadge();
-  appendChatMsg('ai', results.join('\n'));
+  appendChatMsg('ai',results.join('\n'));
   return true;
 }
 
-// ── SMART behavior rule detection — pure JS, no AI needed ────
-// Returns true if we detected and saved a behavior rule
+/** Detect and save a user behavior instruction. Returns true if handled. */
 async function tryDirectBehaviorSave(msg) {
   var lower = msg.toLowerCase();
+  // Must sound like an instruction (huwag/wag/palagi/always/never/dapat)
+  var isInstruction = /\b(huwag|wag|don.t|never|hindi|palagi|lagi|always|dapat|tandaan|remember|i-remember|mag-save|maglagay|ilagay|huwag)\b/.test(lower);
+  // Must mention something about memory or saving behavior
+  var aboutMemory = /\b(save|lagay|ilagay|store|memory|memorya|mag-lagay|maglagay|i-save|isave)\b/.test(lower);
+  if (!isInstruction || !aboutMemory) return false;
 
-  // Must look like an instruction TO the AI about future behavior
-  var hasInstruction = /huwag|wag|don.t|never|hindi|palagi|lagi|always|dapat|tandaan|remember|i-remember|rule/.test(lower);
-  var hasTopic = /save|lagay|ilagay|store|memory|testing|pantest|sample|walang laman|empty|organize|category|mag-lagay|maglagay/.test(lower);
-  if (!hasInstruction || !hasTopic) return false;
+  // Don't fire if there's also a delete intent (handled separately)
+  if (/\b(tanggal|delete|remove|bura|alisin)\b/.test(lower)) return false;
 
-  // Build the behavior rule text from the message directly (no AI needed)
-  // Normalize into a clean instruction sentence
+  // Build a clean rule — use the message as-is (the user said it clearly)
   var rule = msg.trim();
-  // Generate a short key from first few meaningful words
-  var words = lower.replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(function(w){return w.length>2;}).slice(0,5);
-  var key = 'behavior_'+words.join('_').substring(0,50);
-  var title = 'Rule: '+msg.slice(0,50)+(msg.length>50?'...':'');
+  var words = lower.replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(function(w){return w.length>2;}).slice(0,6);
+  var key = 'behavior_'+words.join('_').slice(0,55)+'_'+Date.now().toString(36);
+  var title = 'Rule: '+rule.slice(0,55)+(rule.length>55?'...':'');
 
-  var entry = {
-    title: title,
-    category: 'BEHAVIOR',
-    summary: rule,
-    behaviorRule: rule,
-    keyPoints: [],
-    updated: Date.now()
-  };
-
+  var entry = {title:title,category:'BEHAVIOR',summary:rule,behaviorRule:rule,keyPoints:[],updated:Date.now()};
   try {
-    if (window._db&&window._update&&window._ref) await window._update(window._ref(window._db,'ai_memory'),{[key]:entry});
+    if (window._db&&window._update&&window._ref)
+      await window._update(window._ref(window._db,'ai_memory'),{[key]:entry});
     aiMemory[key]=entry;
     updateMemoryBadge();
     appendChatMsg('ai',
-      'Naintindihan at nai-save sa memory mo ang instruction:\n\n'+
+      'Nai-save ang instruction mo sa memory:\n\n'+
       '"'+rule+'"\n\n'+
-      'Susundin ko ito sa lahat ng susunod na actions. '+
-      'Makikita mo ito sa View Memory > BEHAVIOR RULES.'
+      'Ito ay isasama ko sa lahat ng desisyon ko mula ngayon.\n'+
+      'Mahahanap mo ito sa View Memory → BEHAVIOR RULES.\n\n'+
+      'Key: '+key
     );
     return true;
   } catch(e) {
@@ -322,67 +524,68 @@ async function tryDirectBehaviorSave(msg) {
   }
 }
 
-// ── Main send ─────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// MAIN SEND
+// ─────────────────────────────────────────────────────────────
 async function sendAIChat() {
   var input=document.getElementById('ai-chat-input');
   var msg=input&&input.value&&input.value.trim();
   if (!msg) return;
-  input.value='';input.style.height='';
+  input.value=''; input.style.height='';
   appendChatMsg('user',msg);
 
-  // Pending confirmation
+  // ── Pending confirmation ─────────────────────────────────
   if (_pendingAction) {
     var lower0=msg.toLowerCase();
     var yes=/^(oo|yes|yep|confirm|go|sige|ok|tara|push|1\b|paki|gawin|proceed|ayan|yup|sure)/i.test(lower0);
     var no=/^(hindi|no|nope|cancel|ayaw|stop|huwag|wag|2\b|di na)/i.test(lower0);
     if (yes) {
-      var action=_pendingAction;_pendingAction=null;
+      var pa=_pendingAction; _pendingAction=null;
       AI_CHAT_HISTORY.push({role:'user',content:msg});
-      var tid0=appendChatTyping();
-      var result0=await executeAIAction(action);
-      removeTyping(tid0);
-      AI_CHAT_HISTORY.push({role:'assistant',content:result0});
-      appendChatMsg('ai',result0);
-      scrollChatToBottom();return;
+      var pt=appendChatTyping();
+      var pr=await executeAIAction(pa);
+      removeTyping(pt);
+      AI_CHAT_HISTORY.push({role:'assistant',content:pr});
+      appendChatMsg('ai',pr);
+      scrollChatToBottom(); return;
     }
     if (no) {
       _pendingAction=null;
       AI_CHAT_HISTORY.push({role:'user',content:msg});
-      var r0='Sige, cancelled. Ano pa ang gusto mong gawin?';
+      var r0='Sige, cancelled.';
       AI_CHAT_HISTORY.push({role:'assistant',content:r0});
       appendChatMsg('ai',r0);
-      scrollChatToBottom();return;
+      scrollChatToBottom(); return;
     }
     _pendingAction=null;
   }
 
-  // ── Try direct JS handlers — BOTH can fire on same message ──
-  // e.g. "delete testing sa memory at huwag na mag-save ng testing"
-  // runs delete first, then behavior save, then skips AI entirely
-  var deletedMem = await tryDirectMemoryDelete(msg);
-  var savedBehavior = await tryDirectBehaviorSave(msg);
-  if (deletedMem || savedBehavior) {
+  // ── Direct JS handlers (fast, zero hallucination) ────────
+  // Both can fire on the same message
+  var didDelete   = await tryDirectMemoryDelete(msg);
+  var didBehavior = await tryDirectBehaviorSave(msg);
+  if (didDelete||didBehavior) {
     AI_CHAT_HISTORY.push({role:'user',content:msg});
     AI_CHAT_HISTORY.push({role:'assistant',content:'(handled directly)'});
     scrollChatToBottom(); return;
   }
 
-  // ── Normal AI call ────────────────────────────────────────
+  // ── Normal AI call ───────────────────────────────────────
   AI_CHAT_HISTORY.push({role:'user',content:msg});
   var tid=appendChatTyping();
   setSendBtn(true);
 
   try {
-    var res2=await fetch(GROQ_URL,{
+    var res=await fetch(GROQ_URL,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'llama-3.3-70b-versatile',max_tokens:900,
-        messages:[{role:'system',content:buildAIInstructorPrompt()}].concat(AI_CHAT_HISTORY.slice(-14))
+        model:'llama-3.3-70b-versatile',max_tokens:1000,
+        messages:[{role:'system',content:buildAIInstructorPrompt()}].concat(AI_CHAT_HISTORY.slice(-16))
       })
     });
-    var data2=await res2.json();
-    if (data2.error) throw new Error(data2.error.message||'API error');
-    var reply=(data2.choices&&data2.choices[0]&&data2.choices[0].message&&data2.choices[0].message.content)||'';
+    var data=await res.json();
+    if (data.error) throw new Error(data.error.message||'API error');
+    var reply=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
     var actionMatch=reply.match(/\[ACTION\]([\s\S]*?)\[\/ACTION\]/);
     var cleanReply=reply.replace(/\[ACTION\][\s\S]*?\[\/ACTION\]/g,'').trim();
     removeTyping(tid);
@@ -395,34 +598,37 @@ async function sendAIChat() {
         var asi=araw.indexOf('{'),aei=araw.lastIndexOf('}');
         actionObj=JSON.parse(asi!==-1&&aei!==-1?araw.slice(asi,aei+1):araw);
       } catch(pe) {
-        appendChatMsg('ai',cleanReply||'Error parsing action.');
-        setSendBtn(false);scrollChatToBottom();return;
+        appendChatMsg('ai',cleanReply||'Error parsing action.'); setSendBtn(false); scrollChatToBottom(); return;
       }
 
-      var isMemoryAction=['add_memory','update_memory','remove_memory','clear_all_memory'].indexOf(actionObj.type)!==-1;
-      var isDestructive=['fix_note','bulk_fix'].indexOf(actionObj.type)!==-1;
-      var hasConfirm=cleanReply.toUpperCase().indexOf('DAPAT I-CONFIRM')!==-1||cleanReply.toUpperCase().indexOf('CONFIRM')!==-1;
+      // Memory actions execute immediately — no confirm needed
+      var isMemAction = ['add_memory','update_memory','remove_memory',
+                         'bulk_remove_memory','clear_all_memory','save_behavior_rule'].indexOf(actionObj.type)!==-1;
+      var isNoteAction = ['fix_note','bulk_fix'].indexOf(actionObj.type)!==-1;
 
-      if (!isMemoryAction&&(isDestructive||hasConfirm)) {
+      if (isMemAction) {
+        var mr=await executeAIAction(actionObj);
+        if (mr) cleanReply=cleanReply?cleanReply+'\n\n'+mr:mr;
+        appendChatMsg('ai',cleanReply||mr);
+      } else if (isNoteAction) {
+        // Always confirm before touching notes
         _pendingAction=actionObj;
         var preview=cleanReply.replace(/DAPAT I-CONFIRM:?/gi,'').trim();
         if (actionObj.type==='bulk_fix'&&actionObj.targets) {
-          var lines=actionObj.targets.map(function(t2){
-            var n2=window.allNotes.find(function(x){return x.fbKey===t2.fbKey;});
-            var ch=Object.entries(t2.updates||{}).map(function(kv2){return kv2[0]+'="'+kv2[1]+'"';}).join(', ');
-            return n2?'- "'+n2.title+'" - '+ch:'- fbKey:'+t2.fbKey+' - '+ch;
+          var lines=actionObj.targets.map(function(t){
+            var n=window.allNotes.find(function(x){return x.fbKey===t.fbKey;});
+            var ch=Object.entries(t.updates||{}).map(function(kv){return kv[0]+'="'+kv[1]+'"';}).join(', ');
+            return n?'- "'+n.title+'" → '+ch:'- fbKey:'+t.fbKey+' → '+ch;
           });
           preview+='\n\nMaaapektuhan ('+lines.length+' notes):\n'+lines.slice(0,10).join('\n')+(lines.length>10?'\n...+'+(lines.length-10)+' pa':'');
         } else if (actionObj.type==='fix_note') {
-          var fn2=window.allNotes.find(function(x){return x.fbKey===actionObj.fbKey;});
-          var fch=Object.entries(actionObj.updates||{}).map(function(kv3){return kv3[0]+'="'+kv3[1]+'"';}).join(', ');
-          if (fn2) preview+='\n\nNote: "'+fn2.title+'"\nChanges: '+fch;
+          var fn=window.allNotes.find(function(x){return x.fbKey===actionObj.fbKey;});
+          var fch=Object.entries(actionObj.updates||{}).map(function(kv){return kv[0]+'="'+kv[1]+'"';}).join(', ');
+          if (fn) preview+='\n\nNote: "'+fn.title+'"\nChanges: '+fch;
         }
-        appendChatMsg('ai',preview+'\n\nI-confirm ba? Mag-type ng "oo" o "hindi".');
-        setSendBtn(false);scrollChatToBottom();return;
+        appendChatMsg('ai',(preview||cleanReply)+'\n\nI-confirm? ("oo" / "hindi")');
+        setSendBtn(false); scrollChatToBottom(); return;
       } else {
-        var result2=await executeAIAction(actionObj);
-        if (result2) cleanReply=cleanReply?cleanReply+'\n\n'+result2:result2;
         appendChatMsg('ai',cleanReply);
       }
     } else {
@@ -437,193 +643,175 @@ async function sendAIChat() {
   scrollChatToBottom();
 }
 
-// ── Memory badge ──────────────────────────────────────────────
+function setSendBtn(disabled){ var s=document.getElementById('ai-chat-send'); if(s) s.disabled=!!disabled; }
+
+// ─────────────────────────────────────────────────────────────
+// MEMORY BADGE
+// ─────────────────────────────────────────────────────────────
 function updateMemoryBadge() {
   var c=Object.keys(aiMemory||{}).length;
-  var bar=document.getElementById('aiMemBar');
-  var txt=document.getElementById('aiMemTxt');
+  var bar=document.getElementById('aiMemBar'), txt=document.getElementById('aiMemTxt');
   if (!bar||!txt) return;
   if (c>0){bar.classList.add('show');txt.textContent='AI memory: '+c+' topic'+(c>1?'s':'')+' learned';}
   else bar.classList.remove('show');
 }
 
-// ── UI helpers ────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// CHAT UI HELPERS
+// ─────────────────────────────────────────────────────────────
 var _typingCounter=0;
-
-function appendChatMsg(role,text) {
-  var feed=document.getElementById('ai-chat-feed');
-  if (!feed) return;
-  var div=document.createElement('div');
-  div.className='aicm aicm-'+role;
-  div.innerHTML='<div class="aicm-bubble">'+escChat(text).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>')+'</div>';
-  feed.appendChild(div);
-  scrollChatToBottom();
+function appendChatMsg(role,text){
+  var feed=document.getElementById('ai-chat-feed'); if(!feed) return;
+  var div=document.createElement('div'); div.className='aicm aicm-'+role;
+  div.innerHTML='<div class="aicm-bubble">'+escChat(text)
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\n/g,'<br>')+'</div>';
+  feed.appendChild(div); scrollChatToBottom();
 }
-function appendChatTyping() {
+function appendChatTyping(){
   var id='ty-'+(++_typingCounter);
-  var feed=document.getElementById('ai-chat-feed');
-  if (!feed) return id;
-  var div=document.createElement('div');
-  div.className='aicm aicm-ai';div.id=id;
+  var feed=document.getElementById('ai-chat-feed'); if(!feed) return id;
+  var div=document.createElement('div'); div.className='aicm aicm-ai'; div.id=id;
   div.innerHTML='<div class="aicm-bubble aicm-typing"><span></span><span></span><span></span></div>';
-  feed.appendChild(div);scrollChatToBottom();return id;
+  feed.appendChild(div); scrollChatToBottom(); return id;
 }
 function removeTyping(id){var el=document.getElementById(id);if(el)el.remove();}
 function scrollChatToBottom(){
-  var feed=document.getElementById('ai-chat-feed');
-  if(feed) requestAnimationFrame(function(){feed.scrollTop=feed.scrollHeight;});
+  var f=document.getElementById('ai-chat-feed');
+  if(f) requestAnimationFrame(function(){f.scrollTop=f.scrollHeight;});
 }
 function escChat(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// ── Show memory directly from live data ──────────────────────
-function showMemoryDirect() {
+// ─────────────────────────────────────────────────────────────
+// SHOW / EDIT MEMORY (direct, no AI)
+// ─────────────────────────────────────────────────────────────
+function showMemoryDirect(){
   var entries=Object.entries(aiMemory||{});
-  if (!entries.length) {
-    appendChatMsg('ai','AI Memory mo ay EMPTY ngayon.\n\nWala pang na-save na topics, rules, o behavior instructions.\n\nMag-type ng instruction tulad ng "huwag mag-save ng testing notes" para ma-save bilang rule.');
-    return;
+  if (!entries.length){
+    appendChatMsg('ai','AI Memory ay EMPTY.\n\nMag-type ng instruction para mag-save ng behavior rule.'); return;
   }
   var behaviors=entries.filter(function(e){return e[1].category==='BEHAVIOR'||e[1].behaviorRule;});
-  var rules=entries.filter(function(e){return e[1].categoryRule;});
-  var topics=entries.filter(function(e){return !e[1].behaviorRule&&!e[1].categoryRule&&e[1].category!=='BEHAVIOR';});
+  var rules    =entries.filter(function(e){return e[1].categoryRule;});
+  var topics   =entries.filter(function(e){return !e[1].behaviorRule&&!e[1].categoryRule&&e[1].category!=='BEHAVIOR';});
 
-  var msg='AI Memory - '+entries.length+' entr'+(entries.length!==1?'ies':'y')+' total\n';
-  msg+='====================================\n\n';
-  if (behaviors.length) {
-    msg+='BEHAVIOR RULES ('+behaviors.length+') - instructions mo sa AI:\n';
+  var msg='AI Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+'\n'+'='.repeat(36)+'\n\n';
+  if (behaviors.length){
+    msg+='BEHAVIOR RULES ('+behaviors.length+') — instructions na sinusunod ko:\n';
     behaviors.forEach(function(kv){
-      var k=kv[0],v=kv[1];
-      msg+='- '+v.title+'\n  "'+( v.behaviorRule||v.summary)+'"\n  key: '+k+'\n\n';
+      msg+='• '+kv[1].title+'\n  "'+( kv[1].behaviorRule||kv[1].summary)+'"\n  key: '+kv[0]+'\n\n';
     });
   }
-  if (rules.length) {
+  if (rules.length){
     msg+='CATEGORY RULES ('+rules.length+'):\n';
     rules.forEach(function(kv){
-      var k=kv[0],v=kv[1];
-      msg+='- ['+v.category+'] '+v.title+'\n  Rule: "'+v.categoryRule+'"\n  key: '+k+'\n\n';
+      msg+='• ['+kv[1].category+'] '+kv[1].title+'\n  Rule: "'+kv[1].categoryRule+'"\n  key: '+kv[0]+'\n\n';
     });
   }
-  if (topics.length) {
+  if (topics.length){
     msg+='LEARNED TOPICS ('+topics.length+'):\n';
     topics.forEach(function(kv){
-      var k=kv[0],v=kv[1];
-      var sum=v.summary?String(v.summary).slice(0,80)+(String(v.summary).length>80?'...':''):'-';
-      msg+='- ['+v.category+'] '+v.title+'\n  '+sum+'\n  key: '+k+'\n\n';
+      var s=String(kv[1].summary||'').slice(0,80)+(String(kv[1].summary||'').length>80?'...':'');
+      msg+='• ['+kv[1].category+'] '+kv[1].title+'\n  '+s+'\n  key: '+kv[0]+'\n\n';
     });
   }
-  msg+='Para mag-delete: i-type ang "tanggalin sa memory [title o key]"';
+  msg+='Para mag-delete: "tanggalin sa memory [key o title]"';
   appendChatMsg('ai',msg);
 }
 
-function editMemoryDirect() {
+function editMemoryDirect(){
   var entries=Object.entries(aiMemory||{});
-  if (!entries.length) {
-    appendChatMsg('ai','Walang memory entries pa.\n\nMag-type ng instruction para mag-add ng behavior rule.');
-    return;
-  }
-  var msg='Edit AI Memory - '+entries.length+' entr'+(entries.length!==1?'ies':'y')+':\n\n';
+  if (!entries.length){appendChatMsg('ai','Walang memory entries pa.');return;}
+  var msg='Edit Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+':\n\n';
   entries.forEach(function(kv,i){
-    var k=kv[0],v=kv[1];
-    var extra=v.categoryRule?'\n  Rule: "'+v.categoryRule+'"':(v.behaviorRule?'\n  Behavior: "'+v.behaviorRule+'"':'');
-    msg+=(i+1)+'. ['+v.category+'] '+v.title+extra+'\n  key: '+k+'\n\n';
+    var extra=kv[1].categoryRule?'\n  Rule: "'+kv[1].categoryRule+'"'
+             :kv[1].behaviorRule?'\n  Behavior: "'+kv[1].behaviorRule+'"':'';
+    msg+=(i+1)+'. ['+kv[1].category+'] '+kv[1].title+extra+'\n  key: '+kv[0]+'\n\n';
   });
-  msg+='Para mag-edit o mag-delete:\n"tanggalin sa memory [key]"\n"baguhin ang [key]"';
+  msg+='Para mag-delete: "tanggalin sa memory [key]"\nPara mag-edit: "baguhin ang [key]"';
   appendChatMsg('ai',msg);
 }
 
-// ── Quick prompts with collapse toggle ───────────────────────
-var AI_QUICK_PROMPTS = [
-  {label:'Scan for errors',  text:'I-scan mo ang lahat ng notes ko at sabihin mo kung alin ang posibleng mali ang category, title, o content. Ipakita mo bilang numbered list.'},
-  {label:'Fix one note',     text:'Gusto kong ayusin ang isang specific na note. Itanong mo sa akin kung alin.'},
-  {label:'Bulk fix',         text:'Gusto kong i-bulk fix ang category ng maraming notes sabay-sabay. Itanong mo kung anong category ang papalitan at ano ang tamang category.'},
-  {label:'Add rule',         text:'Gusto ko magdagdag ng category rule sa memory. Itanong mo sa akin ang details.'},
-  {label:'View memory',      action:'showMemoryDirect'},
-  {label:'Notes overview',   text:'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category at may maling nakita ka ba?'},
-  {label:'Edit memory',      action:'editMemoryDirect'},
-  {label:'Clear memory',     text:'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna bago gawin.'},
+// ─────────────────────────────────────────────────────────────
+// QUICK PROMPTS  (collapsible)
+// ─────────────────────────────────────────────────────────────
+var AI_QUICK_PROMPTS=[
+  {label:'Scan for errors', text:'I-scan mo ang lahat ng notes ko at sabihin mo kung alin ang posibleng mali ang category, title, o content. Ipakita bilang numbered list.'},
+  {label:'Fix one note',    text:'Gusto kong ayusin ang isang specific na note. Itanong mo sa akin kung alin.'},
+  {label:'Bulk fix',        text:'Gusto kong i-bulk fix ang category ng maraming notes. Itanong mo kung anong category ang papalitan at ano ang tamang category.'},
+  {label:'Add rule',        text:'Gusto ko magdagdag ng category rule sa memory. Itanong mo sa akin ang details.'},
+  {label:'View memory',     action:'showMemoryDirect'},
+  {label:'Notes overview',  text:'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category?'},
+  {label:'Edit memory',     action:'editMemoryDirect'},
+  {label:'Clear memory',    text:'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna.'},
 ];
 
-function renderQuickPrompts() {
-  var wrap=document.getElementById('ai-quick-prompts');
-  if (!wrap) return;
+function renderQuickPrompts(){
+  var wrap=document.getElementById('ai-quick-prompts'); if(!wrap) return;
   wrap.innerHTML='';
 
-  // ── Toggle bar ──────────────────────────────────────────────
-  var toggleBar=document.createElement('div');
-  toggleBar.style.cssText='display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 2px 4px;';
-
-  var label=document.createElement('span');
-  label.style.cssText='font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-m);font-family:"JetBrains Mono",monospace;';
-  label.textContent='QUICK ACTIONS';
-
-  var toggleBtn=document.createElement('button');
-  toggleBtn.id='qp-toggle-btn';
-  toggleBtn.style.cssText='background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text-m);font-size:10px;padding:2px 7px;cursor:pointer;font-family:"Outfit",sans-serif;transition:all 0.15s;';
-  toggleBtn.textContent=_quickPromptsVisible?'Hide':'Show';
-  toggleBtn.addEventListener('click',function(){
+  var bar=document.createElement('div');
+  bar.style.cssText='display:flex;align-items:center;justify-content:space-between;width:100%;padding:0 2px 5px;';
+  var lbl=document.createElement('span');
+  lbl.style.cssText='font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-m);font-family:"JetBrains Mono",monospace;';
+  lbl.textContent='QUICK ACTIONS';
+  var tog=document.createElement('button');
+  tog.id='qp-toggle-btn';
+  tog.style.cssText='background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text-m);font-size:10px;padding:2px 7px;cursor:pointer;transition:all 0.15s;';
+  tog.textContent=_quickPromptsVisible?'Hide':'Show';
+  tog.addEventListener('click',function(){
     _quickPromptsVisible=!_quickPromptsVisible;
     var chips=document.getElementById('qp-chips');
-    if (chips) chips.style.display=_quickPromptsVisible?'flex':'none';
-    toggleBtn.textContent=_quickPromptsVisible?'Hide':'Show';
-    toggleBtn.style.color=_quickPromptsVisible?'var(--text-m)':'var(--a2)';
+    if(chips) chips.style.display=_quickPromptsVisible?'flex':'none';
+    tog.textContent=_quickPromptsVisible?'Hide':'Show';
   });
+  bar.appendChild(lbl); bar.appendChild(tog); wrap.appendChild(bar);
 
-  toggleBar.appendChild(label);
-  toggleBar.appendChild(toggleBtn);
-  wrap.appendChild(toggleBar);
-
-  // ── Chips container ─────────────────────────────────────────
   var chips=document.createElement('div');
   chips.id='qp-chips';
   chips.style.cssText='display:'+(_quickPromptsVisible?'flex':'none')+';flex-wrap:wrap;gap:5px;width:100%;';
-
   AI_QUICK_PROMPTS.forEach(function(p){
-    var btn=document.createElement('button');
-    btn.className='ai-qp';
-    btn.textContent=p.label;
+    var btn=document.createElement('button'); btn.className='ai-qp'; btn.textContent=p.label;
     btn.addEventListener('click',function(){
-      if (p.action==='showMemoryDirect'){showMemoryDirect();return;}
-      if (p.action==='editMemoryDirect'){editMemoryDirect();return;}
+      if(p.action==='showMemoryDirect'){showMemoryDirect();return;}
+      if(p.action==='editMemoryDirect'){editMemoryDirect();return;}
       var inp=document.getElementById('ai-chat-input');
-      if (inp){inp.value=p.text;sendAIChat();}
+      if(inp){inp.value=p.text;sendAIChat();}
     });
     chips.appendChild(btn);
   });
-
   wrap.appendChild(chips);
 }
 
-// ── Expand / fullscreen ───────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// EXPAND / FULLSCREEN PANEL
+// ─────────────────────────────────────────────────────────────
 var aiPanelExpanded=false;
 
-function injectAIPanelStyles() {
-  if (document.getElementById('ai-panel-expand-styles')) return;
-  var style=document.createElement('style');
-  style.id='ai-panel-expand-styles';
-  style.textContent=
+function injectAIPanelStyles(){
+  if(document.getElementById('ai-panel-expand-styles')) return;
+  var s=document.createElement('style'); s.id='ai-panel-expand-styles';
+  s.textContent=
     '.ai-panel-expand{width:26px;height:26px;background:var(--surface2);border:1px solid var(--border);'+
     'border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;'+
     'color:var(--text-m);transition:all 0.2s;flex-shrink:0;}'+
     '.ai-panel-expand:hover{border-color:var(--a);color:var(--a2);background:var(--ag);}'+
     '.ai-panel-head-btns{display:flex;align-items:center;gap:6px;}'+
     'body.ai-expanded #ai-fab{display:none!important;}'+
-    '.ai-panel.expanded{bottom:0!important;right:0!important;'+
-    'width:100vw!important;max-width:100vw!important;'+
-    'height:100vh!important;max-height:100vh!important;'+
-    'border-radius:0!important;transition:all 0.28s cubic-bezier(0.4,0,0.2,1)!important;}'+
-    '@media(min-width:769px){.ai-panel.expanded{'+
-    'top:56px!important;bottom:0!important;right:0!important;'+
-    'width:480px!important;max-width:480px!important;'+
-    'height:calc(100vh - 56px)!important;max-height:calc(100vh - 56px)!important;'+
-    'border-radius:0!important;border-right:none!important;border-top:none!important;border-bottom:none!important;}}'+
-    '#ai-quick-prompts{padding:6px 12px 8px;border-top:1px solid var(--border);flex-shrink:0;}'+
-    '#qp-toggle-btn:hover{border-color:var(--border-h);color:var(--text-b);}';
-  document.head.appendChild(style);
+    '.ai-panel.expanded{bottom:0!important;right:0!important;width:100vw!important;max-width:100vw!important;'+
+    'height:100vh!important;max-height:100vh!important;border-radius:0!important;'+
+    'transition:all 0.28s cubic-bezier(0.4,0,0.2,1)!important;}'+
+    '@media(min-width:769px){.ai-panel.expanded{top:56px!important;bottom:0!important;right:0!important;'+
+    'width:480px!important;max-width:480px!important;height:calc(100vh - 56px)!important;'+
+    'max-height:calc(100vh - 56px)!important;border-radius:0!important;'+
+    'border-right:none!important;border-top:none!important;border-bottom:none!important;}}'+
+    '#ai-quick-prompts{padding:6px 12px 8px;border-top:1px solid var(--border);flex-shrink:0;}';
+  document.head.appendChild(s);
 }
 
-function toggleAIPanelExpand() {
+function toggleAIPanelExpand(){
   var panel=document.getElementById('ai-chat-panel');
   var btn=document.getElementById('ai-expand-btn');
-  if (!panel||!btn) return;
+  if(!panel||!btn) return;
   aiPanelExpanded=!aiPanelExpanded;
   panel.classList.toggle('expanded',aiPanelExpanded);
   document.body.classList.toggle('ai-expanded',aiPanelExpanded);
@@ -634,59 +822,58 @@ function toggleAIPanelExpand() {
   scrollChatToBottom();
 }
 
-function patchAIPanelHeader() {
-  if (document.getElementById('ai-expand-btn')) return;
-  var head=document.querySelector('.ai-panel-head');
-  if (!head) return;
-  var closeBtn=head.querySelector('.ai-panel-close');
-  if (!closeBtn) return;
+function patchAIPanelHeader(){
+  if(document.getElementById('ai-expand-btn')) return;
+  var head=document.querySelector('.ai-panel-head'); if(!head) return;
+  var closeBtn=head.querySelector('.ai-panel-close'); if(!closeBtn) return;
   var expandBtn=document.createElement('button');
-  expandBtn.className='ai-panel-expand';
-  expandBtn.id='ai-expand-btn';
-  expandBtn.title='Palakihin';
+  expandBtn.className='ai-panel-expand'; expandBtn.id='ai-expand-btn'; expandBtn.title='Palakihin';
   expandBtn.innerHTML='<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
   expandBtn.addEventListener('click',toggleAIPanelExpand);
-  var group=document.createElement('div');
-  group.className='ai-panel-head-btns';
+  var group=document.createElement('div'); group.className='ai-panel-head-btns';
   closeBtn.parentNode.insertBefore(group,closeBtn);
-  group.appendChild(expandBtn);
-  group.appendChild(closeBtn);
+  group.appendChild(expandBtn); group.appendChild(closeBtn);
 }
 
-// ── Panel open/close ──────────────────────────────────────────
-function openAIChat() {
-  injectAIPanelStyles();
-  patchAIPanelHeader();
+// ─────────────────────────────────────────────────────────────
+// PANEL OPEN / CLOSE
+// ─────────────────────────────────────────────────────────────
+function openAIChat(){
+  injectAIPanelStyles(); patchAIPanelHeader();
   aiChatOpen=true;
   var panel=document.getElementById('ai-chat-panel');
   var fab=document.getElementById('ai-fab');
-  if (panel) panel.classList.add('open');
-  if (fab) fab.classList.add('active');
+  if(panel) panel.classList.add('open');
+  if(fab) fab.classList.add('active');
   var feed=document.getElementById('ai-chat-feed');
-  if (feed&&feed.children.length===0) {
-    var myNc=(window.allNotes||[]).filter(function(n){return isMyNote(n);}).length;
-    var mc=Object.keys(aiMemory||{}).length;
-    var behaviorCount=Object.values(aiMemory||{}).filter(function(v){return v.behaviorRule||v.category==='BEHAVIOR';}).length;
-    appendChatMsg('ai',
-      'Hoy! AI Instructor ako.\n\n'+
-      'Nakita ko: '+myNc+' notes mo, '+mc+' memory entr'+(mc!==1?'ies':'y')+
-      (behaviorCount?' (kasama '+behaviorCount+' behavior rule'+(behaviorCount>1?'s':'')+'!)':'')+'.\n\n'+
-      'Tip: Mag-type ng instruction tulad ng "huwag mag-save ng testing notes" at awtomatiko itong mase-save sa memory bilang rule.'
-    );
-    renderQuickPrompts();
+  if(feed&&feed.children.length===0){
+    cleanJunkMemoryEntries().then(function(cleaned){
+      var myNc=(window.allNotes||[]).filter(function(n){return isMyNote(n);}).length;
+      var mc=Object.keys(aiMemory||{}).length;
+      var br=getBehaviorRules().length;
+      appendChatMsg('ai',
+        'Hoy! AI Instructor ako.\n\n'+
+        'Notes mo: '+myNc+' | Memory: '+mc+' entr'+(mc!==1?'ies':'y')+
+        (br?' | '+br+' behavior rule'+(br>1?'s':'')+' active ✓':'')+
+        (cleaned.length?'\nAuto-cleaned: '+cleaned.length+' junk entr'+(cleaned.length>1?'ies':'y'):'')+'\n\n'+
+        'Lahat ng instructions mo sa memory ay sinusunod ko sa bawat action.\n'+
+        'Mag-type ng "huwag mag-save ng [keyword]" para mag-add ng rule.'
+      );
+      renderQuickPrompts();
+    });
   }
   setTimeout(function(){var inp=document.getElementById('ai-chat-input');if(inp)inp.focus();},200);
 }
 
-function closeAIChat() {
-  aiChatOpen=false;aiPanelExpanded=false;
+function closeAIChat(){
+  aiChatOpen=false; aiPanelExpanded=false;
   document.body.classList.remove('ai-expanded');
   var panel=document.getElementById('ai-chat-panel');
-  if (panel) panel.classList.remove('open','expanded');
+  if(panel) panel.classList.remove('open','expanded');
   var fab=document.getElementById('ai-fab');
-  if (fab) fab.classList.remove('active');
+  if(fab) fab.classList.remove('active');
   var exbtn=document.getElementById('ai-expand-btn');
-  if (exbtn) {
+  if(exbtn){
     exbtn.innerHTML='<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
     exbtn.title='Palakihin';
   }
@@ -695,12 +882,13 @@ function closeAIChat() {
 
 function toggleAIChat(){if(aiChatOpen)closeAIChat();else openAIChat();}
 
-// ── Init ──────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',function(){
-  var input=document.getElementById('ai-chat-input');
-  if (!input) return;
+  var input=document.getElementById('ai-chat-input'); if(!input) return;
   input.addEventListener('keydown',function(e){
-    if (e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIChat();}
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIChat();}
   });
   input.addEventListener('input',function(){
     this.style.height='auto';
@@ -708,8 +896,8 @@ document.addEventListener('DOMContentLoaded',function(){
   });
 });
 document.addEventListener('keydown',function(e){
-  if (e.key==='Escape'){
-    if (aiPanelExpanded){toggleAIPanelExpand();return;}
-    if (aiChatOpen) closeAIChat();
+  if(e.key==='Escape'){
+    if(aiPanelExpanded){toggleAIPanelExpand();return;}
+    if(aiChatOpen) closeAIChat();
   }
 });
