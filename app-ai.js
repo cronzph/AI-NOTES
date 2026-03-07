@@ -9,9 +9,6 @@ let _quickPromptsVisible = true;
 
 // ─────────────────────────────────────────────────────────────
 // BEHAVIOR RULES ENGINE
-// All user instructions are stored in aiMemory under category
-// "BEHAVIOR".  These are enforced here in JS AND injected into
-// every AI system-prompt so the AI itself also obeys them.
 // ─────────────────────────────────────────────────────────────
 
 /** Return all saved behavior rules as an array of strings. */
@@ -22,38 +19,23 @@ function getBehaviorRules() {
     .filter(Boolean);
 }
 
-/**
- * Ask the AI to decide — given the current behavior rules —
- * whether a note should be saved to memory.
- * Returns: { skip: bool, reason: string }
- * Pure JS fallback included so this never throws.
- */
 async function shouldSkipMemorySave(note) {
-  // --- JS-level fast checks (always run first) ---
   var title   = String(note.title   || '').toLowerCase().trim();
   var raw     = String(note.rawNote || note.organizedContent || '').toLowerCase();
   var summary = String(note.summary || '').toLowerCase();
 
-  // 1. Built-in: "walang mahalagang impormasyon" in summary
   if (/walang mahalagang impormasyon/.test(summary)) return { skip:true, reason:'walang laman' };
 
-  // 2. Built-in: title is literally just "test","testing","try","sample","pantest"
   if (/^(test|testing|try+|sample|pantest|dummy|placeholder)(\s+(note|notes|lang|ito|nito|only|cmd|command))?$/.test(title)) {
     return { skip:true, reason:'test/try title' };
   }
 
-  // 3. User behavior rules — parse keywords dynamically
   var rules = getBehaviorRules();
   for (var ri = 0; ri < rules.length; ri++) {
     var ruleText = rules[ri].toLowerCase();
-
-    // What is the rule saying to SKIP?
-    // Pattern: "huwag ... save ... [keyword]" or "kapag [keyword] lang ... huwag"
-    // Extract the subject keywords from the rule
     var skipKeywords = extractSkipKeywords(ruleText);
     for (var ki = 0; ki < skipKeywords.length; ki++) {
       var kw = skipKeywords[ki];
-      // Match keyword anywhere in the title (word boundary)
       if (new RegExp('(^|\\s|_)' + escapeRegex(kw) + '(\\s|_|$)').test(title)) {
         return { skip:true, reason:'user rule: ' + rules[ri].slice(0,60) };
       }
@@ -63,27 +45,17 @@ async function shouldSkipMemorySave(note) {
   return { skip:false, reason:'' };
 }
 
-/** Extract the "things to skip" from a rule sentence. */
 function extractSkipKeywords(ruleText) {
   var keywords = [];
-
-  // Known skip-trigger words
   var knownSkip = ['test','testing','try','sample','pantest','dummy','placeholder',
                    'blank','empty','blangko','walang laman','temp','temporary'];
   knownSkip.forEach(function(k){
     if (ruleText.indexOf(k) !== -1) keywords.push(k);
   });
-
-  // Also extract words that come AFTER "kapag" and BEFORE "lang/huwag/di"
-  // e.g. "kapag try lang" → "try"
   var m = ruleText.match(/kapag\s+(\w+)\s+(lang|huwag|di|hindi)/);
   if (m && m[1] && keywords.indexOf(m[1]) === -1) keywords.push(m[1]);
-
-  // Words after "ng" that precede "notes/note"
-  // e.g. "huwag mag-save ng testing notes" → "testing"
   var m2 = ruleText.match(/\bng\s+(\w+)\s+notes?\b/);
   if (m2 && m2[1] && keywords.indexOf(m2[1]) === -1) keywords.push(m2[1]);
-
   return keywords;
 }
 
@@ -91,8 +63,6 @@ function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 
 // ─────────────────────────────────────────────────────────────
 // OVERRIDE window.updateAIMemory
-// Install as early as possible — if the function isn't defined
-// yet, we poll until it is (max 3s).
 // ─────────────────────────────────────────────────────────────
 (function installMemoryOverride() {
   var attempts = 0;
@@ -111,10 +81,8 @@ function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
       console.log('[app-ai.js] updateAIMemory override installed ✓');
       return;
     }
-    if (attempts++ < 30) setTimeout(tryInstall, 100); // retry up to 3s
+    if (attempts++ < 30) setTimeout(tryInstall, 100);
   }
-  // Try immediately (in case script loads after app.html defines it)
-  // and also on DOMContentLoaded
   tryInstall();
   document.addEventListener('DOMContentLoaded', tryInstall);
 })();
@@ -128,7 +96,7 @@ async function cleanJunkMemoryEntries() {
   for (var i = 0; i < keys.length; i++) {
     var k = keys[i];
     var v = aiMemory[k];
-    if (v.category === 'BEHAVIOR') continue; // never delete behavior rules
+    if (v.category === 'BEHAVIOR') continue;
     var check = await shouldSkipMemorySave(Object.assign({ title: v.title }, v));
     if (check.skip) {
       try {
@@ -144,7 +112,7 @@ async function cleanJunkMemoryEntries() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SYSTEM PROMPT  —  full context, full authority
+// SYSTEM PROMPT
 // ─────────────────────────────────────────────────────────────
 function buildAIInstructorPrompt() {
   var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
@@ -294,7 +262,7 @@ async function executeAIAction(actionObj) {
     try {
       if (window._db&&window._update&&window._ref) {
         await window._update(window._ref(window._db,'notes/'+fbKey),finalUpdates);
-        await window.updateAIMemory(Object.assign({},n,finalUpdates)); // override handles skip
+        await window.updateAIMemory(Object.assign({},n,finalUpdates));
       } else {Object.assign(n,finalUpdates);renderApp();}
       return 'Fixed: "'+n.title+'"';
     } catch(e){return 'Fix failed: '+e.message;}
@@ -353,7 +321,6 @@ async function executeAIAction(actionObj) {
       keyPoints:d2.keyPoints||[],updated:Date.now()};
     if (d2.categoryRule) ent.categoryRule=d2.categoryRule;
     if (d2.behaviorRule) ent.behaviorRule=d2.behaviorRule;
-    // Enforce: don't save junk even via add_memory
     var chk = await shouldSkipMemorySave(ent);
     if (chk.skip) return 'Hindi na-save — lumalabas sa behavior rules: '+chk.reason;
     try {
@@ -422,24 +389,42 @@ async function executeAIAction(actionObj) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// DIRECT HANDLERS  — JS intercepts before hitting AI
-// These run first for reliability (no AI hallucination possible)
+// DIRECT HANDLERS
 // ─────────────────────────────────────────────────────────────
 
-/** Handle "tanggalin/delete sa memory ..." directly. Returns true if handled. */
+/**
+ * Returns true if the message is asking the AI to DECIDE what to delete
+ * (vs. the user naming a specific thing to delete).
+ * These "vague check-and-clean" messages should go straight to the AI.
+ */
+function isVagueCleanRequest(lower) {
+  // Patterns like "check mo memory", "tingnan mo at tanggalin", "linisin mo", "clean up"
+  return /\b(check|tingnan|tignan|linisin|clean|i-clean|mag-clean|suriin|i-check)\b/.test(lower)
+      || /\b(kung meron|kung may|kung mayroon)\b/.test(lower)
+      || /\b(lahat|all|everything)\b.*\b(tanggal|delete|remove|clear)\b/.test(lower)
+      || /\b(tanggal|delete|remove)\b.*\b(lahat|all|everything)\b/.test(lower);
+}
+
+/** Handle "tanggalin/delete sa memory [specific item]" directly. Returns true if handled. */
 async function tryDirectMemoryDelete(msg) {
   var lower = msg.toLowerCase();
   if (!/tanggal|delete|remove|bura|alisin|i-delete|itanggal/.test(lower)) return false;
   if (!/memory|memorya/.test(lower)) return false;
 
+  // ── NEW: If the request is vague ("check mo at tanggalin"), let AI handle it ──
+  if (isVagueCleanRequest(lower)) return false;
+
   var memKeys = Object.keys(aiMemory || {});
   if (!memKeys.length) { appendChatMsg('ai','Wala nang laman ang AI memory.'); return true; }
 
-  // Strip "action + memory" noise words to get subject terms
+  // Strip noise words to get subject terms
   var subject = lower
     .replace(/\b(tanggal|delete|remove|bura|alisin|i-delete|itanggal|sa|ng|ang|yung|mo|na|lahat|memory|memorya|naman|na|nito|ito)\b/g,' ')
     .replace(/\s+/g,' ').trim();
   var subjWords = subject.split(' ').map(function(w){return w.replace(/[^a-z0-9]/g,'');}).filter(function(w){return w.length>1;});
+
+  // If no specific subject words remain → vague, let AI handle
+  if (!subjWords.length) return false;
 
   var toDelete = [];
   var seen = {};
@@ -448,11 +433,8 @@ async function tryDirectMemoryDelete(msg) {
     var v = aiMemory[k];
     var tl = String(v.title||'').toLowerCase();
     var kl = k.toLowerCase();
-    // Exact key in message
     if (lower.includes(kl)) { toDelete.push(k); seen[k]=true; return; }
-    // Exact title in message
     if (tl.length>2 && lower.includes(tl)) { toDelete.push(k); seen[k]=true; return; }
-    // Any subject word matches any word in key or title
     if (subjWords.length) {
       var kwords = kl.replace(/_/g,' ').split(' ').filter(function(w){return w.length>1;});
       var twords = tl.split(/\s+/).filter(function(w){return w.length>1;});
@@ -464,12 +446,8 @@ async function tryDirectMemoryDelete(msg) {
     }
   });
 
-  if (!toDelete.length) {
-    var list = memKeys.filter(function(k){return aiMemory[k].category!=='BEHAVIOR';})
-      .map(function(k,i){return (i+1)+'. ['+aiMemory[k].category+'] '+aiMemory[k].title+' (key: '+k+')';}).join('\n');
-    appendChatMsg('ai','Alin sa memory entries ang gusto mong tanggalin?\n\n'+list+'\n\nSabihin ang exact title o key.');
-    return true;
-  }
+  // If no specific match found → let AI figure it out
+  if (!toDelete.length) return false;
 
   var results=[];
   for (var i=0;i<toDelete.length;i++) {
@@ -477,7 +455,7 @@ async function tryDirectMemoryDelete(msg) {
     try {
       if (window._db&&window._update&&window._ref)
         await window._update(window._ref(window._db,'ai_memory'),{[dk]:null});
-      results.push('Tinanggal: "'+( aiMemory[dk].title||dk)+'"');
+      results.push('Tinanggal: "'+(aiMemory[dk].title||dk)+'"');
       delete aiMemory[dk];
     } catch(de){results.push('Failed "'+dk+'": '+de.message);}
   }
@@ -489,16 +467,11 @@ async function tryDirectMemoryDelete(msg) {
 /** Detect and save a user behavior instruction. Returns true if handled. */
 async function tryDirectBehaviorSave(msg) {
   var lower = msg.toLowerCase();
-  // Must sound like an instruction (huwag/wag/palagi/always/never/dapat)
   var isInstruction = /\b(huwag|wag|don.t|never|hindi|palagi|lagi|always|dapat|tandaan|remember|i-remember|mag-save|maglagay|ilagay|huwag)\b/.test(lower);
-  // Must mention something about memory or saving behavior
   var aboutMemory = /\b(save|lagay|ilagay|store|memory|memorya|mag-lagay|maglagay|i-save|isave)\b/.test(lower);
   if (!isInstruction || !aboutMemory) return false;
-
-  // Don't fire if there's also a delete intent (handled separately)
   if (/\b(tanggal|delete|remove|bura|alisin)\b/.test(lower)) return false;
 
-  // Build a clean rule — use the message as-is (the user said it clearly)
   var rule = msg.trim();
   var words = lower.replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(function(w){return w.length>2;}).slice(0,6);
   var key = 'behavior_'+words.join('_').slice(0,55)+'_'+Date.now().toString(36);
@@ -561,9 +534,8 @@ async function sendAIChat() {
   }
 
   // ── Direct JS handlers (fast, zero hallucination) ────────
-  // Both can fire on the same message
   var didDelete   = await tryDirectMemoryDelete(msg);
-  var didBehavior = await tryDirectBehaviorSave(msg);
+  var didBehavior = !didDelete && await tryDirectBehaviorSave(msg);
   if (didDelete||didBehavior) {
     AI_CHAT_HISTORY.push({role:'user',content:msg});
     AI_CHAT_HISTORY.push({role:'assistant',content:'(handled directly)'});
@@ -601,7 +573,6 @@ async function sendAIChat() {
         appendChatMsg('ai',cleanReply||'Error parsing action.'); setSendBtn(false); scrollChatToBottom(); return;
       }
 
-      // Memory actions execute immediately — no confirm needed
       var isMemAction = ['add_memory','update_memory','remove_memory',
                          'bulk_remove_memory','clear_all_memory','save_behavior_rule'].indexOf(actionObj.type)!==-1;
       var isNoteAction = ['fix_note','bulk_fix'].indexOf(actionObj.type)!==-1;
@@ -611,7 +582,6 @@ async function sendAIChat() {
         if (mr) cleanReply=cleanReply?cleanReply+'\n\n'+mr:mr;
         appendChatMsg('ai',cleanReply||mr);
       } else if (isNoteAction) {
-        // Always confirm before touching notes
         _pendingAction=actionObj;
         var preview=cleanReply.replace(/DAPAT I-CONFIRM:?/gi,'').trim();
         if (actionObj.type==='bulk_fix'&&actionObj.targets) {
