@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#050810">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Notes AI — App</title>
@@ -687,7 +688,9 @@ function renderApp(){
     </div>`;
   }).join('');
 }
-function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// str() — always returns a safe string regardless of what Firebase stored
+function str(v){if(v==null)return'';if(typeof v==='string')return v;if(Array.isArray(v))return v.map(str).join('\n');if(typeof v==='object')return JSON.stringify(v);return String(v);}
+function esc(s){var safe=str(s);return safe.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setAppF(f,btn){appFilt=f;document.querySelectorAll('#app-filters .fb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');renderApp();}
 function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 
@@ -695,7 +698,7 @@ function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 // VIEW MODAL
 // ============================================================
 function renderOrgContent(raw){
-  const lines=(raw||'').split('\n');
+  const lines=str(raw).split('\n');
   let html='';
   for(const line of lines){
     const t=line.trim();
