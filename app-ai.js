@@ -8,49 +8,51 @@ let _pendingAction = null;
 
 // ── Build live system prompt with REAL fbKeys + memory ───────
 function buildAIInstructorPrompt() {
-  const myNotes = (window.allNotes || []).filter(n => isMyNote(n));
-  const notesBlock = myNotes.length
-    ? myNotes.map((n, i) => {
-        const t = String(n.title||'').replace(/"/g,"'").slice(0,60);
-        const r = String(n.rawNote||'').replace(/\n/g,' ').replace(/"/g,"'").slice(0,100);
+  var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
+  var notesBlock = myNotes.length
+    ? myNotes.map(function(n, i) {
+        var t = String(n.title||'').replace(/"/g,"'").slice(0,60);
+        var r = String(n.rawNote||'').replace(/\n/g,' ').replace(/"/g,"'").slice(0,100);
         return '[' + i + '] fbKey="' + n.fbKey + '" | title="' + t + '" | cat="' + n.category + '" | public=' + (n.isPublic===true) + (r?' | raw="'+r+'"':'') + (n.imageData?' | hasImage=true':'');
       }).join('\n')
     : '(wala pang notes)';
 
-  const memEntries = Object.entries(aiMemory || {});
-  const memBlock = memEntries.length
-    ? memEntries.map(([k,v]) => {
-        const s = String(v.summary||'').slice(0,80).replace(/"/g,"'");
-        const rule = v.categoryRule ? ' | RULE: "' + v.categoryRule + '"' : '';
-        return 'key="' + k + '" | title="' + (v.title||'') + '" | cat="' + (v.category||'') + '" | summary="' + s + '"' + rule;
+  var memEntries = Object.entries(aiMemory || {});
+  var memBlock = memEntries.length
+    ? memEntries.map(function(kv) {
+        var k = kv[0], v = kv[1];
+        var s = String(v.summary||'').slice(0,80).replace(/"/g,"'");
+        var rule = v.categoryRule ? ' | RULE: "' + v.categoryRule + '"' : '';
+        var behavior = v.behaviorRule ? ' | BEHAVIOR: "' + v.behaviorRule + '"' : '';
+        return 'key="' + k + '" | title="' + (v.title||'') + '" | cat="' + (v.category||'') + '" | summary="' + s + '"' + rule + behavior;
       }).join('\n')
     : '(walang memory entries)';
 
   return 'Ikaw ay ang AI Instructor ng Notes AI app. INSTRUCTOR MODE KA LANG.\n\n' +
-'PINAKA-IMPORTANTENG RULE: Ang fbKey sa ACTION JSON ay DAPAT KOPYA NANG EKSAKTO mula sa listahan ng notes sa ibaba. Huwag mag-imbento ng fbKey.\n\n' +
-'RULES:\n' +
-'1. LAGING magtanong o mag-confirm bago gumawa ng kahit anong action sa notes.\n' +
-'2. Bago mag-fix ng notes, ipakita kung ano-ano ang maaapektuhan, tanungin ang user.\n' +
-'3. Kung mali ang category, itanong kung anong tama - huwag mag-assume.\n' +
-'4. Para sa category rules: i-save sa memory para hindi na maulit ang pagkakamali.\n' +
-'5. Maikli at malinaw ang sagot. Filipino/English. Max 6 sentences.\n' +
-'6. Para sa actions, gamitin ang [ACTION]{...}[/ACTION] tag sa DULO ng message.\n\n' +
-'ACTION FORMATS (gamitin EXACT fbKey/key mula sa listahan):\n' +
-'fix_note:      {"type":"fix_note","fbKey":"EXACT","updates":{"category":"NEW_CAT"},"reOrganize":true}\n' +
-'bulk_fix:      {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}...],"reason":"...","reOrganize":true}\n' +
-'add_memory:    {"type":"add_memory","data":{"key":"unique_key","title":"...","category":"CAT","summary":"...","categoryRule":"..."}}\n' +
-'update_memory: {"type":"update_memory","data":{"key":"EXACT_MEMORY_KEY","title":"...","category":"...","categoryRule":"..."}}\n' +
+'PINAKA-IMPORTANTENG RULES:\n' +
+'1. NOTES at MEMORY ay MAGKAIBA. Ang "notes" ay ang mga note cards ng user sa app. Ang "memory" ay ang ai_memory entries. HUWAG PALITIIN.\n' +
+'2. Kapag sinabi ng user na "tanggalin sa memory" o "i-delete sa memory" - gamitin ang remove_memory action, HINDI ang bulk_fix o fix_note.\n' +
+'3. Ang fbKey sa fix_note/bulk_fix ay DAPAT KOPYA NANG EKSAKTO mula sa USER NOTES list. Huwag mag-imbento.\n' +
+'4. Kapag mag-a-action sa NOTES (fix/bulk) - ilagay "DAPAT I-CONFIRM:" at gumamit ng fix_note/bulk_fix.\n' +
+'5. Kapag mag-a-action sa MEMORY (add/update/remove) - direkta lang ang [ACTION], walang confirm needed.\n' +
+'6. Maikli at malinaw ang sagot. Filipino/English.\n' +
+'7. Gamitin ang [ACTION]{...}[/ACTION] tag sa DULO ng message para sa actions.\n\n' +
+'ACTION FORMATS:\n' +
+'-- Para sa NOTES --\n' +
+'fix_note:      {"type":"fix_note","fbKey":"EXACT_KEY","updates":{"category":"CAT"},"reOrganize":true}\n' +
+'bulk_fix:      {"type":"bulk_fix","targets":[{"fbKey":"EXACT_KEY","updates":{"category":"CAT"}}...],"reason":"...","reOrganize":true}\n' +
+'-- Para sa MEMORY --\n' +
+'add_memory:    {"type":"add_memory","data":{"key":"unique_key","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}\n' +
+'update_memory: {"type":"update_memory","data":{"key":"EXACT_MEMORY_KEY","title":"...","behaviorRule":"..."}}\n' +
 'remove_memory: {"type":"remove_memory","data":{"key":"EXACT_MEMORY_KEY"}}\n' +
 'clear_all_memory: {"type":"clear_all_memory"}\n\n' +
-'- fix_note / bulk_fix: ilagay "DAPAT I-CONFIRM:" bago ang [ACTION] tag.\n' +
-'- memory-only actions: pwede direkta ang [ACTION] - walang confirm needed.\n' +
-'- reOrganize:true = PALAGI para sa category fixes.\n\n' +
+'NOTE: behaviorRule = instructions from user on how AI should behave (e.g. "huwag mag-save ng testing notes")\n\n' +
 '======================================\n' +
-'USER NOTES (' + myNotes.length + ') - EXACT fbKey DITO:\n' +
+'USER NOTES (' + myNotes.length + ') - para sa fix_note/bulk_fix:\n' +
 '======================================\n' +
 notesBlock + '\n\n' +
 '======================================\n' +
-'AI MEMORY (' + memEntries.length + ') - EXACT key DITO:\n' +
+'AI MEMORY (' + memEntries.length + ') - para sa memory actions:\n' +
 '======================================\n' +
 memBlock;
 }
@@ -66,7 +68,6 @@ async function executeAIAction(actionObj) {
     if (!n) return 'Note not found (fbKey: ' + fbKey + ')';
     if (!isMyNote(n)) return 'Hindi mo to note: "' + n.title + '"';
     if (updates.category) updates.category = updates.category.toUpperCase().replace(/\s+/g,'_');
-
     var finalUpdates = Object.assign({}, updates);
     if (reOrganize !== false && (n.rawNote || n.organizedContent)) {
       try {
@@ -157,22 +158,55 @@ async function executeAIAction(actionObj) {
     var entry = { title:d.title||d.key, category:d.category||'OTHER', summary:d.summary||'',
       keyPoints:d.keyPoints||[], updated:Date.now() };
     if (d.categoryRule) entry.categoryRule = d.categoryRule;
+    if (d.behaviorRule) entry.behaviorRule = d.behaviorRule;
     try {
       if (window._db && window._update && window._ref) await window._update(window._ref(window._db,'ai_memory'),{[mk]:entry});
       aiMemory[mk] = entry; updateMemoryBadge();
-      return 'Memory ' + (type==='add_memory'?'added':'updated') + ': "' + (d.title||d.key) + '"' + (d.categoryRule ? '\nRule: "' + d.categoryRule + '"' : '');
+      var saved = 'Memory ' + (type==='add_memory'?'added':'updated') + ': "' + (d.title||d.key) + '"';
+      if (d.categoryRule) saved += '\nRule: "' + d.categoryRule + '"';
+      if (d.behaviorRule) saved += '\nBehavior: "' + d.behaviorRule + '"';
+      return saved;
     } catch(e) { return 'Memory save failed: ' + e.message; }
   }
 
   if (type === 'remove_memory') {
     var rk = actionObj.data && actionObj.data.key;
-    var rmatch = Object.keys(aiMemory).find(function(mk2){ return mk2===rk || aiMemory[mk2].title===rk; });
-    if (!rmatch) return 'Not found: "' + rk + '"';
+    // FIX: also match by partial key or title for flexibility
+    var rmatch = Object.keys(aiMemory).find(function(mk2){
+      return mk2 === rk || aiMemory[mk2].title === rk || mk2.includes(String(rk));
+    });
+    if (!rmatch) return 'Hindi makita sa memory: "' + rk + '"';
     try {
       if (window._db && window._update && window._ref) await window._update(window._ref(window._db,'ai_memory'),{[rmatch]:null});
+      var removed = aiMemory[rmatch].title || rmatch;
       delete aiMemory[rmatch]; updateMemoryBadge();
-      return 'Removed: "' + rk + '"';
+      return 'Tinanggal sa memory: "' + removed + '"';
     } catch(e) { return 'Failed: ' + e.message; }
+  }
+
+  if (type === 'bulk_remove_memory') {
+    // FIX: new action type for deleting multiple memory entries at once
+    var keys = actionObj.keys || [];
+    if (!keys.length) return 'Walang keys na ibinigay.';
+    var removed = [], failed = [];
+    for (var ki = 0; ki < keys.length; ki++) {
+      var rkey = keys[ki];
+      var rmatch2 = Object.keys(aiMemory).find(function(mk3){
+        return mk3 === rkey || aiMemory[mk3].title === rkey || mk3.includes(String(rkey));
+      });
+      if (!rmatch2) { failed.push(rkey); continue; }
+      try {
+        if (window._db && window._update && window._ref) await window._update(window._ref(window._db,'ai_memory'),{[rmatch2]:null});
+        var rtitle = aiMemory[rmatch2].title || rmatch2;
+        delete aiMemory[rmatch2];
+        removed.push(rtitle);
+      } catch(e3) { failed.push(rkey + ' (' + e3.message + ')'); }
+    }
+    updateMemoryBadge();
+    var msg = '';
+    if (removed.length) msg += 'Tinanggal (' + removed.length + '):\n' + removed.map(function(r){ return '- ' + r; }).join('\n');
+    if (failed.length) msg += '\n\nHindi mahanap:\n' + failed.map(function(f){ return '- ' + f; }).join('\n');
+    return msg || 'Walang nagawa.';
   }
 
   if (type === 'clear_all_memory') {
@@ -190,6 +224,63 @@ async function executeAIAction(actionObj) {
   return 'Unknown type: ' + type;
 }
 
+// ── FIX: always re-enable send button via helper ──────────────
+function setSendBtn(disabled) {
+  var sbtn = document.getElementById('ai-chat-send');
+  if (sbtn) sbtn.disabled = !!disabled;
+}
+
+// ── Detect and auto-save behavior instructions from user ──────
+// If user says things like "huwag mag-save ng testing" → save to memory as behaviorRule
+async function maybeAutoSaveBehaviorRule(msg) {
+  var lower = msg.toLowerCase();
+  // Keywords that suggest a behavior instruction
+  var isBehavior = (
+    /huwag|wag|hindi|don.t|do not|never|always|palagi|lagi|dapat|rule|tama|mali|i-remember|tandaan|remember/.test(lower) &&
+    /save|lagay|ilagay|store|memory|kato|testing|pantest|sample|walang laman|empty|blangko|organize|category/.test(lower)
+  );
+  if (!isBehavior) return false;
+
+  // Auto-save via AI — ask AI to convert the instruction into a memory entry
+  try {
+    var res = await fetch(GROQ_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'llama-3.3-70b-versatile', max_tokens:300,
+        messages:[
+          {role:'system', content:
+            'You extract behavior rules from user instructions for an AI notes app.\n' +
+            'If the user is giving a behavior rule/instruction for the AI (e.g. "don\'t save testing notes", "always use FREELANCE for client work"), ' +
+            'return PURE JSON like: {"isBehavior":true,"key":"behavior_rule_short_key","title":"Short Title","behaviorRule":"The exact rule to follow","category":"BEHAVIOR"}\n' +
+            'If it is NOT a behavior instruction, return: {"isBehavior":false}\n' +
+            'Return ONLY JSON. No markdown, no extra text.'
+          },
+          {role:'user', content: msg}
+        ]
+      })
+    });
+    var data = await res.json();
+    var raw = (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'').replace(/```json|```/g,'').trim();
+    var si=raw.indexOf('{'), ei=raw.lastIndexOf('}');
+    var parsed = JSON.parse(si!==-1&&ei!==-1 ? raw.slice(si,ei+1) : raw);
+    if (parsed.isBehavior && parsed.key && parsed.behaviorRule) {
+      var result = await executeAIAction({
+        type: 'add_memory',
+        data: {
+          key: parsed.key,
+          title: parsed.title || parsed.key,
+          category: 'BEHAVIOR',
+          summary: parsed.behaviorRule,
+          behaviorRule: parsed.behaviorRule
+        }
+      });
+      appendChatMsg('ai', 'Nai-save sa memory ang instruction mo:\n"' + parsed.behaviorRule + '"\n\n' + result);
+      return true;
+    }
+  } catch(e) { console.warn('Auto-save behavior rule failed:', e.message); }
+  return false;
+}
+
 // ── Main send ─────────────────────────────────────────────────
 async function sendAIChat() {
   var input = document.getElementById('ai-chat-input');
@@ -198,10 +289,11 @@ async function sendAIChat() {
   input.value = ''; input.style.height = '';
   appendChatMsg('user', msg);
 
+  // ── Pending confirmation path ─────────────────────────────
   if (_pendingAction) {
-    var lower = msg.toLowerCase();
-    var yes = /^(oo|yes|yep|confirm|go|sige|ok|tara|push|1\b|paki|gawin|proceed|ayan|yup|sure)/i.test(lower);
-    var no  = /^(hindi|no|nope|cancel|ayaw|stop|huwag|wag|2\b|di na)/i.test(lower);
+    var lower0 = msg.toLowerCase();
+    var yes = /^(oo|yes|yep|confirm|go|sige|ok|tara|push|1\b|paki|gawin|proceed|ayan|yup|sure)/i.test(lower0);
+    var no  = /^(hindi|no|nope|cancel|ayaw|stop|huwag|wag|2\b|di na)/i.test(lower0);
     if (yes) {
       var action = _pendingAction; _pendingAction = null;
       AI_CHAT_HISTORY.push({role:'user',content:msg});
@@ -223,10 +315,66 @@ async function sendAIChat() {
     _pendingAction = null;
   }
 
+  // ── Direct memory delete detection (JS-level, no AI needed) ─
+  // Catches: "delete sa memory", "tanggalin sa memory", "remove from memory"
+  var lowerMsg = msg.toLowerCase();
+  var isMemDelete = /tanggal|delete|remove|bura|alisin/.test(lowerMsg) && /memory|memorya/.test(lowerMsg);
+  if (isMemDelete) {
+    // Find which memory keys the user is referring to (look for quoted or listed keys/titles)
+    var memEntries = Object.entries(aiMemory || {});
+    var toDelete = [];
+
+    // Check if user mentioned specific keys by name
+    memEntries.forEach(function(kv) {
+      var k = kv[0], v = kv[1];
+      var titleLower = String(v.title||'').toLowerCase();
+      var keyLower = k.toLowerCase();
+      // Match if key or title is mentioned in the message
+      if (lowerMsg.includes(keyLower) || (titleLower.length > 3 && lowerMsg.includes(titleLower))) {
+        toDelete.push({key: k, title: v.title || k});
+      }
+    });
+
+    // If specific keys found, delete them directly
+    if (toDelete.length > 0) {
+      var delResults = [];
+      for (var di = 0; di < toDelete.length; di++) {
+        var dk = toDelete[di].key;
+        try {
+          if (window._db && window._update && window._ref) await window._update(window._ref(window._db,'ai_memory'),{[dk]:null});
+          delResults.push('Tinanggal: "' + toDelete[di].title + '"');
+          delete aiMemory[dk];
+        } catch(de) { delResults.push('Failed "' + toDelete[di].title + '": ' + de.message); }
+      }
+      updateMemoryBadge();
+      AI_CHAT_HISTORY.push({role:'user',content:msg});
+      var delMsg = delResults.join('\n');
+      AI_CHAT_HISTORY.push({role:'assistant',content:delMsg});
+      appendChatMsg('ai', delMsg);
+      scrollChatToBottom(); return;
+    }
+    // No specific keys found — show memory and ask which to delete
+    var memList = memEntries.map(function(kv, i){ return (i+1) + '. [' + kv[1].category + '] ' + kv[1].title + '  (key: ' + kv[0] + ')'; }).join('\n');
+    if (!memEntries.length) {
+      appendChatMsg('ai', 'Wala nang laman ang AI memory.'); return;
+    }
+    appendChatMsg('ai', 'Alin sa memory entries ang gusto mong tanggalin? Pwede mo sabihin ang title o key:\n\n' + memList);
+    AI_CHAT_HISTORY.push({role:'user',content:msg});
+    AI_CHAT_HISTORY.push({role:'assistant',content:'(shown memory list for deletion)'});
+    scrollChatToBottom(); return;
+  }
+
+  // ── Check if user is giving a behavior instruction to save ──
+  var savedBehavior = await maybeAutoSaveBehaviorRule(msg);
+  if (savedBehavior) {
+    AI_CHAT_HISTORY.push({role:'user',content:msg});
+    scrollChatToBottom(); return;
+  }
+
+  // ── Normal AI call path ────────────────────────────────────
   AI_CHAT_HISTORY.push({role:'user',content:msg});
   var tid = appendChatTyping();
-  var sbtn = document.getElementById('ai-chat-send');
-  if (sbtn) sbtn.disabled = true;
+  setSendBtn(true);
 
   try {
     var res2 = await fetch(GROQ_URL, {
@@ -254,28 +402,34 @@ async function sendAIChat() {
         actionObj = JSON.parse(asi!==-1&&aei!==-1 ? araw.slice(asi,aei+1) : araw);
       } catch(pe) {
         appendChatMsg('ai', cleanReply || 'Error parsing action.');
+        setSendBtn(false);
         scrollChatToBottom(); return;
       }
 
       var isDestructive = ['fix_note','bulk_fix','clear_all_memory'].indexOf(actionObj.type) !== -1;
       var hasConfirm = cleanReply.toUpperCase().indexOf('DAPAT I-CONFIRM') !== -1 || cleanReply.toUpperCase().indexOf('CONFIRM') !== -1;
 
-      if (isDestructive || hasConfirm) {
+      // FIX: memory actions are NEVER destructive — execute directly, no confirm
+      var isMemoryAction = ['add_memory','update_memory','remove_memory','bulk_remove_memory'].indexOf(actionObj.type) !== -1;
+
+      if (!isMemoryAction && (isDestructive || hasConfirm)) {
         _pendingAction = actionObj;
         var preview = cleanReply.replace(/DAPAT I-CONFIRM:?/gi,'').trim();
         if (actionObj.type === 'bulk_fix' && actionObj.targets) {
           var lines = actionObj.targets.map(function(t2) {
             var n2 = window.allNotes.find(function(x){ return x.fbKey === t2.fbKey; });
-            var ch = Object.entries(t2.updates||{}).map(function(kv){ return kv[0]+'="'+kv[1]+'"'; }).join(', ');
+            var ch = Object.entries(t2.updates||{}).map(function(kv2){ return kv2[0]+'="'+kv2[1]+'"'; }).join(', ');
             return n2 ? '- "' + n2.title + '" - ' + ch : '- fbKey:' + t2.fbKey + ' - ' + ch;
           });
           preview += '\n\nMaaapektuhan (' + lines.length + ' notes):\n' + lines.slice(0,10).join('\n') + (lines.length>10 ? '\n...+' + (lines.length-10) + ' pa' : '');
         } else if (actionObj.type === 'fix_note') {
           var fn2 = window.allNotes.find(function(x){ return x.fbKey === actionObj.fbKey; });
-          var fch = Object.entries(actionObj.updates||{}).map(function(kv){ return kv[0]+'="'+kv[1]+'"'; }).join(', ');
+          var fch = Object.entries(actionObj.updates||{}).map(function(kv3){ return kv3[0]+'="'+kv3[1]+'"'; }).join(', ');
           if (fn2) preview += '\n\nNote: "' + fn2.title + '"\nChanges: ' + fch;
         }
         appendChatMsg('ai', preview + '\n\nI-confirm ba? Mag-type ng "oo" o "hindi".');
+        setSendBtn(false);
+        scrollChatToBottom(); return;
       } else {
         var result2 = await executeAIAction(actionObj);
         if (result2) cleanReply = cleanReply ? cleanReply + '\n\n' + result2 : result2;
@@ -289,7 +443,7 @@ async function sendAIChat() {
     appendChatMsg('ai', 'Error: ' + err.message);
   }
 
-  if (sbtn) sbtn.disabled = false;
+  setSendBtn(false);
   scrollChatToBottom();
 }
 
@@ -333,41 +487,41 @@ function scrollChatToBottom() {
 function escChat(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ── Show memory DIRECTLY from live Firebase data ──────────────
-// Bypasses AI entirely — no hallucination possible
 function showMemoryDirect() {
   var entries = Object.entries(aiMemory || {});
   if (!entries.length) {
-    appendChatMsg('ai',
-      'AI Memory mo ay EMPTY ngayon.\n\nWala pang na-save na topics o category rules.\n\n' +
-      'Mag-organize ng notes para mabuild ang memory, o gumamit ng "Add category rule" para mag-manually add ng rule.'
-    );
+    appendChatMsg('ai', 'AI Memory mo ay EMPTY ngayon.\n\nWala pang na-save na topics, rules, o instructions.\n\nMag-organize ng notes para mabuild ang memory, o mag-type ng instruction para i-save bilang rule.');
     return;
   }
-
-  var rules  = entries.filter(function(e){ return e[1].categoryRule; });
-  var topics = entries.filter(function(e){ return !e[1].categoryRule; });
+  var behaviors = entries.filter(function(e){ return e[1].category === 'BEHAVIOR' || e[1].behaviorRule; });
+  var rules     = entries.filter(function(e){ return e[1].categoryRule; });
+  var topics    = entries.filter(function(e){ return !e[1].behaviorRule && !e[1].categoryRule; });
 
   var msg = 'AI Memory - ' + entries.length + ' entr' + (entries.length !== 1 ? 'ies' : 'y') + ' total\n';
   msg += '====================================\n\n';
-
+  if (behaviors.length) {
+    msg += 'BEHAVIOR RULES (' + behaviors.length + ') - instructions mo sa AI:\n';
+    behaviors.forEach(function(kv) {
+      var k = kv[0], v = kv[1];
+      msg += '- ' + v.title + '\n  "' + (v.behaviorRule||v.summary) + '"\n  key: ' + k + '\n\n';
+    });
+  }
   if (rules.length) {
     msg += 'CATEGORY RULES (' + rules.length + '):\n';
     rules.forEach(function(kv) {
       var k = kv[0], v = kv[1];
-      msg += '[' + v.category + '] ' + v.title + '\n  Rule: "' + v.categoryRule + '"\n  key: ' + k + '\n\n';
+      msg += '- [' + v.category + '] ' + v.title + '\n  Rule: "' + v.categoryRule + '"\n  key: ' + k + '\n\n';
     });
   }
-
   if (topics.length) {
     msg += 'LEARNED TOPICS (' + topics.length + '):\n';
     topics.forEach(function(kv) {
       var k = kv[0], v = kv[1];
-      var sum = v.summary ? String(v.summary).slice(0,90) + (String(v.summary).length > 90 ? '...' : '') : '-';
-      msg += '[' + v.category + '] ' + v.title + '\n  ' + sum + '\n  key: ' + k + '\n\n';
+      var sum = v.summary ? String(v.summary).slice(0,80) + (String(v.summary).length > 80 ? '...' : '') : '-';
+      msg += '- [' + v.category + '] ' + v.title + '\n  ' + sum + '\n  key: ' + k + '\n\n';
     });
   }
-
-  msg += 'Gusto mo bang mag-edit o mag-delete ng isang entry? Sabihin mo lang ang key.';
+  msg += 'Para mag-delete: i-type ang "delete [key]" o "tanggalin [title]"';
   appendChatMsg('ai', msg);
 }
 
@@ -375,20 +529,16 @@ function showMemoryDirect() {
 function editMemoryDirect() {
   var entries = Object.entries(aiMemory || {});
   if (!entries.length) {
-    appendChatMsg('ai',
-      'Walang memory entries pa. Wala ring ie-edit.\n\n' +
-      'Gumamit ng "Add category rule" para mag-add ng bago.'
-    );
+    appendChatMsg('ai', 'Walang memory entries pa.\n\nGumamit ng "Add category rule" o mag-type ng instruction para mag-add ng bago.');
     return;
   }
-
   var msg = 'Edit AI Memory - ' + entries.length + ' entr' + (entries.length !== 1 ? 'ies' : 'y') + ':\n\n';
   entries.forEach(function(kv, i) {
     var k = kv[0], v = kv[1];
-    var ruleStr = v.categoryRule ? '\n  Rule: "' + v.categoryRule + '"' : '';
-    msg += (i + 1) + '. [' + v.category + '] ' + v.title + ruleStr + '\n  key: ' + k + '\n\n';
+    var extra = v.categoryRule ? '\n  Rule: "' + v.categoryRule + '"' : (v.behaviorRule ? '\n  Behavior: "' + v.behaviorRule + '"' : '');
+    msg += (i + 1) + '. [' + v.category + '] ' + v.title + extra + '\n  key: ' + k + '\n\n';
   });
-  msg += 'Sabihin mo kung anong key ang gusto mong i-edit o i-delete.\nHalimbawa:\n"i-delete ang key it_react_hooks"\n"baguhin ang rule ng key freelance_client_meeting"';
+  msg += 'Para mag-edit o mag-delete:\n"i-delete ang [key]"\n"baguhin ang [key]: bagong value"';
   appendChatMsg('ai', msg);
 }
 
@@ -434,14 +584,17 @@ function injectAIPanelStyles() {
     'border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;' +
     'color:var(--text-m);transition:all 0.2s;flex-shrink:0;}' +
     '.ai-panel-expand:hover{border-color:var(--a);color:var(--a2);background:var(--ag);}' +
-    '.ai-panel.expanded{bottom:0!important;right:0!important;width:100vw!important;max-width:100vw!important;' +
-    'height:100vh!important;max-height:100vh!important;border-radius:0!important;' +
-    'transition:all 0.28s cubic-bezier(0.4,0,0.2,1)!important;}' +
-    '@media(min-width:769px){.ai-panel.expanded{top:56px!important;bottom:0!important;right:0!important;' +
-    'width:480px!important;max-width:480px!important;height:calc(100vh - 56px)!important;' +
-    'max-height:calc(100vh - 56px)!important;border-radius:0!important;' +
-    'border-right:none!important;border-top:none!important;border-bottom:none!important;}}' +
-    '.ai-panel-head-btns{display:flex;align-items:center;gap:6px;}';
+    '.ai-panel-head-btns{display:flex;align-items:center;gap:6px;}' +
+    'body.ai-expanded #ai-fab{display:none!important;}' +
+    '.ai-panel.expanded{bottom:0!important;right:0!important;' +
+    'width:100vw!important;max-width:100vw!important;' +
+    'height:100vh!important;max-height:100vh!important;' +
+    'border-radius:0!important;transition:all 0.28s cubic-bezier(0.4,0,0.2,1)!important;}' +
+    '@media(min-width:769px){.ai-panel.expanded{' +
+    'top:56px!important;bottom:0!important;right:0!important;' +
+    'width:480px!important;max-width:480px!important;' +
+    'height:calc(100vh - 56px)!important;max-height:calc(100vh - 56px)!important;' +
+    'border-radius:0!important;border-right:none!important;border-top:none!important;border-bottom:none!important;}}';
   document.head.appendChild(style);
 }
 
@@ -451,6 +604,7 @@ function toggleAIPanelExpand() {
   if (!panel || !btn) return;
   aiPanelExpanded = !aiPanelExpanded;
   panel.classList.toggle('expanded', aiPanelExpanded);
+  document.body.classList.toggle('ai-expanded', aiPanelExpanded);
   btn.innerHTML = aiPanelExpanded
     ? '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>'
     : '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
@@ -482,17 +636,18 @@ function openAIChat() {
   injectAIPanelStyles();
   patchAIPanelHeader();
   aiChatOpen = true;
-  document.getElementById('ai-chat-panel') && document.getElementById('ai-chat-panel').classList.add('open');
-  document.getElementById('ai-fab') && document.getElementById('ai-fab').classList.add('active');
+  var panel = document.getElementById('ai-chat-panel');
+  var fab = document.getElementById('ai-fab');
+  if (panel) panel.classList.add('open');
+  if (fab) fab.classList.add('active');
   var feed = document.getElementById('ai-chat-feed');
   if (feed && feed.children.length === 0) {
     var myNc = (window.allNotes || []).filter(function(n){ return isMyNote(n); }).length;
     var mc = Object.keys(aiMemory || {}).length;
     appendChatMsg('ai',
       'Hoy! AI Instructor ako.\n\nNakita ko: ' + myNc + ' notes mo, ' + mc + ' memory entr' + (mc !== 1 ? 'ies' : 'y') + '.\n\n' +
-      'Kaya ko:\n- I-scan ang notes para sa maling category/content\n- Mag-fix ng note - re-organize + tamang category\n' +
-      '- Bulk-fix ng maraming notes sabay-sabay\n- Mag-save ng category rules\n- Mag-manage ng AI memory\n\n' +
-      'Gusto mo bang i-scan ko muna ang notes mo?'
+      'Kaya ko:\n- I-scan at i-fix ang notes\n- Mag-delete ng memory entries\n- Mag-save ng category rules at behavior rules\n- Mag-manage ng AI memory\n\n' +
+      'Tip: Pwede kang mag-type ng instruction tulad ng "huwag mag-save ng testing notes" at awtomatiko itong mase-save sa memory ko.'
     );
     renderQuickPrompts();
   }
@@ -502,6 +657,7 @@ function openAIChat() {
 function closeAIChat() {
   aiChatOpen = false;
   aiPanelExpanded = false;
+  document.body.classList.remove('ai-expanded');
   var panel = document.getElementById('ai-chat-panel');
   if (panel) panel.classList.remove('open', 'expanded');
   var fab = document.getElementById('ai-fab');
@@ -511,6 +667,7 @@ function closeAIChat() {
     exbtn.innerHTML = '<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>';
     exbtn.title = 'Palakihin';
   }
+  setSendBtn(false);
 }
 
 function toggleAIChat() { if (aiChatOpen) closeAIChat(); else openAIChat(); }
