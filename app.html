@@ -334,6 +334,17 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
 
+/* Edit modal image chip */
+.ef-img-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:4px}
+.ef-img-chip{position:relative;width:72px;height:72px;border-radius:10px;overflow:hidden;border:1px solid var(--border-h);flex-shrink:0;cursor:zoom-in}
+.ef-img-chip img{width:100%;height:100%;object-fit:cover;display:block}
+.ef-img-chip-rm{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,0.75);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;transition:background 0.15s}
+.ef-img-chip-rm:hover{background:var(--red)}
+.ef-img-actions{display:flex;flex-direction:column;gap:6px;justify-content:center}
+.ef-img-btn{display:inline-flex;align-items:center;gap:5px;background:var(--ag);border:1px solid var(--border-h);border-radius:7px;color:var(--a2);font-size:11px;font-weight:600;padding:5px 10px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.15s;white-space:nowrap}
+.ef-img-btn:hover{background:var(--surface3);border-color:var(--a)}
+#ef-fi{display:none}
+
 @media(max-width:768px){
   html,body{height:auto;overflow:auto}
   .app-body{grid-template-columns:1fr;overflow:visible}
@@ -494,6 +505,8 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
     </div>
   </div>
 </div>
+<!-- Hidden file input for edit modal image replacement -->
+<input type="file" accept="image/*" id="ef-fi" onchange="onEditFile(event)">
 
 <!-- IMAGE LIGHTBOX -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
@@ -703,8 +716,12 @@ async function callGroq(text){
   try{
     const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+text}]})});
     const data=await res.json();
-    if(data.error)throw new Error(data.error.message);
-    const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
+    if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+    const content=data.choices?.[0]?.message?.content;
+    if(!content)throw new Error('Empty response from AI');
+    let raw=content.replace(/```json|```/g,'').trim();
+    const start=raw.indexOf('{');const end=raw.lastIndexOf('}');
+    if(start!==-1&&end!==-1)raw=raw.slice(start,end+1);
     const p=JSON.parse(raw);
     await saveNote(p,'text',text);
     document.getElementById('txtArea').value='';
@@ -716,17 +733,29 @@ async function callGroq(text){
 async function callGroqVision(imgB64,extraText=''){
   setLoading(true,'AI is reading image...');
   try{
-    // Build prompt — if user also typed text, include it as extra context
-    const userPrompt=extraText
+    // Vision model: system prompt as text block + image + user text context
+    const textBlock=extraText
       ?`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image. May dagdag na text context ang user:\n\n${extraText}`
-      :`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image.`;
-    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imgB64}`}},{type:'text',text:userPrompt}]}]})});
+      :`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image. Return PURE JSON only.`;
+    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      model:'meta-llama/llama-4-scout-17b-16e-instruct',
+      max_tokens:1800,
+      messages:[{role:'user',content:[
+        {type:'text',text:textBlock},
+        {type:'image_url',image_url:{url:`data:image/jpeg;base64,${imgB64}`}}
+      ]}]
+    })});
     const data=await res.json();
-    if(data.error)throw new Error(data.error.message);
-    const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
+    if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
+    const content=data.choices?.[0]?.message?.content;
+    if(!content)throw new Error('Empty response from AI');
+    // Strip markdown fences and find JSON robustly
+    let raw=content.replace(/```json|```/g,'').trim();
+    // Find first { to last } in case model adds preamble
+    const start=raw.indexOf('{');const end=raw.lastIndexOf('}');
+    if(start!==-1&&end!==-1)raw=raw.slice(start,end+1);
     const p=JSON.parse(raw);
     window._pendingImgB64=imgB64;
-    // rawNote saves the extra text if any, so it shows in Notes tab
     await saveNote(p,'img',extraText||'[image]');
     window._pendingImgB64=null;
     clearImg();
@@ -911,7 +940,13 @@ function renderViewBody(){
   const body=document.getElementById('mv-body');
   if(currentViewTab==='notes'){
     const imgHtml=n.imageData
-      ?`<div style="margin-bottom:14px;border-radius:10px;overflow:hidden;border:1px solid var(--border)"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;display:block;max-height:340px;object-fit:contain;background:var(--surface2)"></div>`
+      ?`<div style="margin-bottom:14px;border-radius:10px;overflow:hidden;border:1px solid var(--border);cursor:zoom-in" onclick="openLightbox('data:image/jpeg;base64,${n.imageData}')" title="Click to enlarge">
+          <img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;display:block;max-height:260px;object-fit:contain;background:var(--surface2)">
+          <div style="padding:5px 10px;background:var(--surface3);font-size:10px;color:var(--text-m);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:5px">
+            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            Tap to enlarge
+          </div>
+        </div>`
       :'';
     const display=str(n.rawNote)||str(n.organizedContent);
     const isEmpty=!display.trim()||display==='[image]';
@@ -969,19 +1004,70 @@ function openView(key){
 function closeView(){document.getElementById('ov-view').classList.remove('on');currentViewKey=null;currentViewNote=null;}
 
 // ============================================================
-// EDIT MODAL
+// EDIT MODAL — with image attach/replace support
 // ============================================================
+let editB64=null; // tracks new/replacement image during edit
+
+function onEditFile(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    editB64=ev.target.result.split(',')[1];
+    // Update the chip in edit modal
+    const chip=document.getElementById('ef-img-chip-img');
+    const strip=document.getElementById('ef-img-strip');
+    if(chip){chip.src=ev.target.result;}
+    if(strip){strip.style.display='flex';}
+    // Update noimg add button section
+    const noimg=document.getElementById('ef-noimg');
+    if(noimg)noimg.style.display='none';
+    showToast('🖼️ Image updated!');
+  };
+  r.readAsDataURL(f);
+}
+
+function removeEditImg(){
+  editB64='__REMOVE__'; // sentinel — means clear the image on save
+  const strip=document.getElementById('ef-img-strip');
+  if(strip)strip.style.display='none';
+  const noimg=document.getElementById('ef-noimg');
+  if(noimg)noimg.style.display='flex';
+}
+
 function openEdit(key){
   const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
   if(!n)return;
   if(!isMyNote(n)){showToast('⚠️ Hindi mo ma-edit ang notes ng iba.');return;}
   editingKey=key;
+  editB64=null; // reset
+  document.getElementById('ef-fi').value='';
   const rawVal=str(n.rawNote)||str(n.organizedContent);
-  const imgPreview=n.source==='img'&&n.imageData
-    ?`<div class="ef"><div class="ef-l">Original Image</div><div style="border-radius:var(--rs);overflow:hidden;border:1px solid var(--border)"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;max-height:160px;object-fit:contain;display:block;background:var(--surface2)"></div></div>`
-    :'';
+  const hasImg=!!(n.imageData);
+  const imgSrc=hasImg?`data:image/jpeg;base64,${n.imageData}`:'';
+
   document.getElementById('me-body').innerHTML=`
-    ${imgPreview}
+    <!-- Image section -->
+    <div class="ef">
+      <div class="ef-l">Image ${hasImg?'':'(optional)'}</div>
+      <!-- Chip shown when image exists -->
+      <div id="ef-img-strip" style="display:${hasImg?'flex':'none'};align-items:flex-start;gap:10px;margin-bottom:4px">
+        <div class="ef-img-chip" onclick="openLightbox('${imgSrc}')" title="Click to enlarge">
+          <img id="ef-img-chip-img" src="${imgSrc}" alt="image">
+        </div>
+        <div class="ef-img-actions">
+          <button type="button" class="ef-img-btn" onclick="document.getElementById('ef-fi').click()">🔄 Replace</button>
+          <button type="button" class="ef-img-btn" style="color:var(--red);border-color:rgba(248,113,113,0.3)" onclick="removeEditImg()">🗑️ Remove</button>
+        </div>
+      </div>
+      <!-- Add image button when no image -->
+      <div id="ef-noimg" style="display:${hasImg?'none':'flex'};align-items:center;gap:8px">
+        <button type="button" class="ef-img-btn" onclick="document.getElementById('ef-fi').click()">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Attach Image
+        </button>
+        <span style="font-size:11px;color:var(--text-m)">or paste Ctrl+V</span>
+      </div>
+    </div>
     <div class="ef"><div class="ef-l">Title</div><input class="ef-in" id="ef-title" value="${esc(n.title)}"></div>
     <div class="ef-row">
       <div class="ef"><div class="ef-l">Category</div><input class="ef-in" id="ef-cat" value="${esc(n.category)}" placeholder="IT, STUDY, CRYPTO..."></div>
@@ -992,45 +1078,112 @@ function openEdit(key){
         </select>
       </div>
     </div>
-    <div class="ef" style="flex:1;display:flex;flex-direction:column">
-      <div class="ef-l">Your Notes</div>
-      <textarea class="ef-in ef-ta tall" id="ef-rawnote" style="flex:1;min-height:220px">${esc(rawVal==='[image]'?'':rawVal)}</textarea>
+    <div class="ef" style="display:flex;flex-direction:column">
+      <div class="ef-l">Text Notes</div>
+      <textarea class="ef-in ef-ta tall" id="ef-rawnote" style="min-height:180px">${esc(rawVal==='[image]'?'':rawVal)}</textarea>
     </div>
     <div style="background:var(--ag2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--text-m);display:flex;align-items:center;gap:8px;margin-top:4px">
-      <span>🤖</span><span>I-save — mag-re-organize si AI gamit ang edited notes.</span>
+      <span>🤖</span><span>I-save — mag-re-organize si AI.</span>
     </div>`;
+
+  // Allow paste into edit modal
+  document.getElementById('me-body').onpaste=function(e){
+    for(const item of e.clipboardData?.items||[]){
+      if(item.type.startsWith('image/')){
+        const f=item.getAsFile();if(!f)return;
+        const r2=new FileReader();
+        r2.onload=ev2=>{
+          editB64=ev2.target.result.split(',')[1];
+          const chip=document.getElementById('ef-img-chip-img');
+          const strip=document.getElementById('ef-img-strip');
+          const noimg=document.getElementById('ef-noimg');
+          if(!chip){
+            // rebuild chip
+            document.getElementById('ef-img-strip').innerHTML=`<div class="ef-img-chip" onclick="openLightbox('${ev2.target.result}')" title="Click to enlarge"><img id="ef-img-chip-img" src="${ev2.target.result}" alt="image"></div><div class="ef-img-actions"><button type="button" class="ef-img-btn" onclick="document.getElementById('ef-fi').click()">🔄 Replace</button><button type="button" class="ef-img-btn" style="color:var(--red);border-color:rgba(248,113,113,0.3)" onclick="removeEditImg()">🗑️ Remove</button></div>`;
+          }else{chip.src=ev2.target.result;chip.parentElement.onclick=()=>openLightbox(ev2.target.result);}
+          if(strip)strip.style.display='flex';
+          if(noimg)noimg.style.display='none';
+          showToast('📋 Image pasted!');
+        };
+        r2.readAsDataURL(f);break;
+      }
+    }
+  };
+
   closeView();
   document.getElementById('ov-edit').classList.add('on');
 }
-function closeEdit(){document.getElementById('ov-edit').classList.remove('on');editingKey=null;}
+
+function closeEdit(){document.getElementById('ov-edit').classList.remove('on');editingKey=null;editB64=null;}
+
 async function saveEdit(){
   if(!editingKey)return;
   const n=window.allNotes.find(x=>(x.fbKey===editingKey||String(x.id)===String(editingKey)));
   if(!n)return;
-  // Hard ownership guard
   if(!isMyNote(n)){showToast('⚠️ Hindi mo ma-edit ang notes ng iba.');closeEdit();return;}
   const title=document.getElementById('ef-title').value.trim()||n.title;
   const category=(document.getElementById('ef-cat').value.trim()||n.category).toUpperCase().replace(/\s+/g,'_');
   const isPublic=document.getElementById('ef-vis').value==='public';
   const rawNote=document.getElementById('ef-rawnote').value.trim();
+
+  // Resolve final imageData
+  let imageData=n.imageData||''; // keep existing by default
+  if(editB64==='__REMOVE__')imageData='';
+  else if(editB64)imageData=editB64;
+
   const btn=document.getElementById('save-btn');
   btn.disabled=true;btn.innerHTML='<span style="animation:blk 1s infinite alternate;display:inline-block">🤖 Re-organizing...</span>';
   try{
     function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,vv])=>k+': '+vv).join('\n');return String(v);}
     function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
-    let updates={title,category,isPublic,rawNote};
-    if(rawNote){
-      const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+rawNote}]})});
-      const data=await res.json();
-      if(!data.error){
-        const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
-        try{
+
+    // Determine source: has image → 'img', else 'text'
+    const newSource=imageData?'img':'text';
+    let updates={title,category,isPublic,rawNote,imageData,source:newSource};
+
+    // Re-organize with AI
+    if(imageData&&rawNote){
+      // Image + text context
+      try{
+        const textBlock=`${buildSysPrompt()}\n\nBasahin at i-organize. May dagdag na text context:\n\n${rawNote}`;
+        const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'text',text:textBlock},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imageData}`}}]}]})});
+        const data=await res.json();
+        if(!data.error){
+          let raw=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+          const s=raw.indexOf('{');const e2=raw.lastIndexOf('}');
+          if(s!==-1&&e2!==-1)raw=raw.slice(s,e2+1);
           const p=JSON.parse(raw);
-          const aiCat=(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_');
-          updates={title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:aiCat,isPublic,rawNote,summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
-        }catch(e){console.error('AI parse',e);}
-      }
+          updates={...updates,title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
+        }
+      }catch(e){console.error('Vision re-org:',e);}
+    }else if(imageData&&!rawNote){
+      // Image only re-read
+      try{
+        const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'text',text:buildSysPrompt()+'\n\nBasahin at i-organize ang notes sa image. Return PURE JSON only.'},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imageData}`}}]}]})});
+        const data=await res.json();
+        if(!data.error){
+          let raw=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+          const s=raw.indexOf('{');const e2=raw.lastIndexOf('}');
+          if(s!==-1&&e2!==-1)raw=raw.slice(s,e2+1);
+          const p=JSON.parse(raw);
+          updates={...updates,title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
+        }
+      }catch(e){console.error('Vision re-org:',e);}
+    }else if(rawNote){
+      // Text only
+      try{
+        const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize:\n\n'+rawNote}]})});
+        const data=await res.json();
+        if(!data.error){
+          let raw=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+          const s=raw.indexOf('{');const e2=raw.lastIndexOf('}');
+          if(s!==-1&&e2!==-1)raw=raw.slice(s,e2+1);
+          const p=JSON.parse(raw);
+          updates={...updates,title:title||(ensureStr(p.title)||'Untitled'),category:category!==n.category?category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent)};
+        }
+      }catch(e){console.error('Text re-org:',e);}
     }
+
     if(window._db&&window._update&&window._ref&&n.fbKey){
       await window._update(window._ref(window._db,`notes/${n.fbKey}`),updates);
       await updateAIMemory({...n,...updates});
