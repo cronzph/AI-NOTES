@@ -79,7 +79,6 @@ async function executeAIAction(actionObj) {
     if (!isMyNote(n)) return `⚠️ Hindi mo to note: "${n.title}"`;
     if (updates.category) updates.category = updates.category.toUpperCase().replace(/\s+/g,'_');
 
-    // If reOrganize=true or note has actual content, re-run AI to fix summary/keyPoints too
     let finalUpdates = {...updates};
     if (reOrganize !== false && (n.rawNote || n.organizedContent)) {
       try {
@@ -102,7 +101,6 @@ async function executeAIAction(actionObj) {
           const p = JSON.parse(s!==-1&&e!==-1 ? raw.slice(s,e+1) : raw);
           function es(v){if(v==null)return'';if(typeof v==='string')return v;if(Array.isArray(v))return v.join('\n');return String(v);}
           function ea(v){if(Array.isArray(v))return v.map(es).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
-          // User-specified updates take priority over AI re-org
           finalUpdates = {
             title: updates.title || es(p.title) || n.title,
             category: updates.category || es(p.category).toUpperCase().replace(/\s+/g,'_') || n.category,
@@ -139,7 +137,6 @@ async function executeAIAction(actionObj) {
 
       let finalUpdates = {...updates};
 
-      // Re-organize content if note has rawNote and category is being changed
       if (shouldReOrg && updates.category && (n.rawNote || n.organizedContent)) {
         try {
           const noteContent = n.rawNote && n.rawNote !== '[image]' ? n.rawNote : n.organizedContent || n.title;
@@ -298,7 +295,6 @@ async function sendAIChat() {
 
       if (isDestructive || hasConfirmMarker) {
         _pendingAction = actionObj;
-        // Build preview
         let preview = cleanReply.replace(/DAPAT I-CONFIRM:?/gi,'').trim();
         if (actionObj.type === 'bulk_fix' && actionObj.targets) {
           const names = actionObj.targets.map(t => {
@@ -375,28 +371,33 @@ function escChat(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&
 
 // ── Quick prompts ────────────────────────────────────────────
 const AI_QUICK_PROMPTS = [
-  { label: '🔍 Scan for errors',   text: 'I-scan mo ang lahat ng notes ko at sabihin mo kung alin ang posibleng mali ang category, title, o content. Ipakita mo bilang numbered list.' },
-  { label: '🔧 Fix one note',       text: 'Gusto kong ayusin ang isang specific na note. Itanong mo sa akin kung alin.' },
-  { label: '🔁 Bulk fix category',  text: 'Gusto kong i-bulk fix ang category ng maraming notes sabay-sabay. Itanong mo kung anong category ang papalitan at ano ang tamang category.' },
-  { label: '📏 Add category rule',  text: 'Gusto ko magdagdag ng category rule sa memory. Halimbawa: kapag may ganitong content, dapat ganito ang category. Itanong mo sa akin ang details.' },
-  { label: '🧠 View memory + rules','text': 'Ipakita mo lahat ng nasa AI memory ko pati ang mga category rules na na-save.' },
-  { label: '📊 Notes overview',     text: 'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category at may maling nakita ka ba?' },
-  { label: '✏️ Edit memory',        text: 'Gusto kong mag-edit ng memory entry o category rule. Ipakita mo muna ang lahat ng entries.' },
-  { label: '🧹 Clear memory',       text: 'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna bago gawin.' },
+  { label: '🔍 Scan for errors',    text: 'I-scan mo ang lahat ng notes ko at sabihin mo kung alin ang posibleng mali ang category, title, o content. Ipakita mo bilang numbered list.' },
+  { label: '🔧 Fix one note',        text: 'Gusto kong ayusin ang isang specific na note. Itanong mo sa akin kung alin.' },
+  { label: '🔁 Bulk fix category',   text: 'Gusto kong i-bulk fix ang category ng maraming notes sabay-sabay. Itanong mo kung anong category ang papalitan at ano ang tamang category.' },
+  { label: '📏 Add category rule',   text: 'Gusto ko magdagdag ng category rule sa memory. Halimbawa: kapag may ganitong content, dapat ganito ang category. Itanong mo sa akin ang details.' },
+  { label: '🧠 View memory + rules', text: 'Ipakita mo lahat ng nasa AI memory ko pati ang mga category rules na na-save.' },
+  { label: '📊 Notes overview',      text: 'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category at may maling nakita ka ba?' },
+  { label: '✏️ Edit memory',         text: 'Gusto kong mag-edit ng memory entry o category rule. Ipakita mo muna ang lahat ng entries.' },
+  { label: '🧹 Clear memory',        text: 'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna bago gawin.' },
 ];
 
 function renderQuickPrompts() {
   const wrap = document.getElementById('ai-quick-prompts');
   if (!wrap) return;
-  wrap.innerHTML = AI_QUICK_PROMPTS.map(p =>
-    `<button class="ai-qp" onclick="useQuickPrompt(${JSON.stringify(p.text)})">${p.label}</button>`
-  ).join('');
-}
-
-function useQuickPrompt(text) {
-  const input = document.getElementById('ai-chat-input');
-  if (!input) return;
-  input.value = text; sendAIChat();
+  wrap.innerHTML = '';
+  AI_QUICK_PROMPTS.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'ai-qp';
+    btn.textContent = p.label;
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('ai-chat-input');
+      if (input) {
+        input.value = p.text;
+        sendAIChat();
+      }
+    });
+    wrap.appendChild(btn);
+  });
 }
 
 // ── Panel open/close ─────────────────────────────────────────
@@ -406,11 +407,13 @@ function openAIChat() {
   document.getElementById('ai-fab')?.classList.add('active');
   const feed = document.getElementById('ai-chat-feed');
   if (feed && feed.children.length === 0) {
-    const nc = (window.allNotes||[]).length;
-    const mc = Object.keys(aiMemory||{}).length;
-    const myNc = (window.allNotes||[]).filter(n=>isMyNote(n)).length;
+    // FIX: get accurate counts at open time, after data is loaded
+    const myNotes = (window.allNotes || []).filter(n => isMyNote(n));
+    const myNc = myNotes.length;
+    const mc = Object.keys(aiMemory || {}).length;
+
     appendChatMsg('ai',
-      `Hoy! AI Instructor ako. 👋\n\nNakita ko: ${myNc} notes mo, ${mc} memory entr${mc!==1?'ies':'y'}.\n\nKaya ko:\n• I-scan ang notes para sa maling category/content\n• Mag-fix ng note — re-organize content + tamang category\n• Bulk-fix ng maraming notes sabay-sabay\n• Mag-save ng category rules (para hindi na maulit)\n• Mag-manage ng AI memory\n\nGusto mo bang i-scan ko muna ang notes mo para tingnan kung may mali?`
+      `Hoy! AI Instructor ako. 👋\n\nNakita ko: ${myNc} notes mo, ${mc} memory entr${mc !== 1 ? 'ies' : 'y'}.\n\nKaya ko:\n• I-scan ang notes para sa maling category/content\n• Mag-fix ng note — re-organize content + tamang category\n• Bulk-fix ng maraming notes sabay-sabay\n• Mag-save ng category rules (para hindi na maulit)\n• Mag-manage ng AI memory\n\nGusto mo bang i-scan ko muna ang notes mo para tingnan kung may mali?`
     );
     renderQuickPrompts();
   }
