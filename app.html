@@ -583,7 +583,7 @@ async function callGroq(text){
     if(data.error)throw new Error(data.error.message);
     const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
     const p=JSON.parse(raw);
-    await saveNote(p,'text');
+    await saveNote(p,'text',text);
     document.getElementById('txtArea').value='';
     showToast(`✦ Saved [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   }catch(err){console.error(err);showToast('⚠️ '+err.message);}
@@ -597,17 +597,24 @@ async function callGroqVision(imgB64){
     if(data.error)throw new Error(data.error.message);
     const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
     const p=JSON.parse(raw);
-    await saveNote(p,'img');clearImg();
+    await saveNote(p,'img','[image]');clearImg();
     showToast(`✦ Image saved [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   }catch(err){console.error(err);showToast('⚠️ '+err.message);}
   setLoading(false);
 }
-async function saveNote(p,source){
+async function saveNote(p,source,rawNote=''){
+  // Sanitize — ensure correct types regardless of what AI returned
+  function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,val])=>k+': '+val).join('\n');return String(v);}
+  function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
   const note={
-    id:Date.now(),title:p.title||'Untitled',
-    category:(p.category||'OTHER').toUpperCase().replace(/\s+/g,'_'),
-    summary:p.summary||'',keyPoints:p.keyPoints||[],
-    organizedContent:p.organizedContent||'',source,
+    id:Date.now(),
+    title:ensureStr(p.title)||'Untitled',
+    category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),
+    summary:ensureStr(p.summary),
+    keyPoints:ensureArr(p.keyPoints),
+    organizedContent:ensureStr(p.organizedContent),
+    rawNote:rawNote||'',
+    source,
     isPublic:noteVisibility==='public',
     date:new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}),
     author:window._currentUser?.displayName||window._currentUser?.email||'Anonymous',
@@ -698,7 +705,9 @@ function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 // VIEW MODAL
 // ============================================================
 function renderOrgContent(raw){
-  const lines=str(raw).split('\n');
+  const s=str(raw).trim();
+  if(!s)return'<span style="color:var(--text-m);font-style:italic;font-size:13px">Walang laman</span>';
+  const lines=s.split('\n');
   let html='';
   for(const line of lines){
     const t=line.trim();
@@ -708,7 +717,7 @@ function renderOrgContent(raw){
       html+=`<div class="org-bullet"><span class="org-bullet-dot">•</span><span>${esc(t.slice(2))}</span></div>`;
     }else{html+=`<div class="org-p">${esc(t)}</div>`;}
   }
-  return html||'<span style="color:var(--text-m);font-style:italic;font-size:13px">Walang laman</span>';
+  return html;
 }
 function switchViewTab(t){
   currentViewTab=t;
@@ -720,13 +729,33 @@ function renderViewBody(){
   const n=currentViewNote;if(!n)return;
   const body=document.getElementById('mv-body');
   if(currentViewTab==='notes'){
-    body.innerHTML=`<div class="org-content">${renderOrgContent(n.organizedContent)}</div>`;
+    // Show exactly what was stored — sanitize to string first, never show raw JSON objects
+    const rawContent=str(n.organizedContent);
+    body.innerHTML=`
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+        <button onclick="copyNotes()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s" onmouseover="this.style.background='var(--ag2)'" onmouseout="this.style.background='var(--ag)'">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy Notes
+        </button>
+      </div>
+      <div class="org-content" id="org-content-display">${renderOrgContent(rawContent)}</div>`;
   }else{
-    const kpHtml=(n.keyPoints||[]).length
-      ?`<div class="vs"><div class="vs-l">🔑 Key Points</div><div class="kp-list">${n.keyPoints.map(p=>`<div class="kp-item"><span class="kp-arrow">→</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
+    const kps=Array.isArray(n.keyPoints)?n.keyPoints:(n.keyPoints?[str(n.keyPoints)]:[]);
+    const kpHtml=kps.filter(Boolean).length
+      ?`<div class="vs"><div class="vs-l">🔑 Key Points</div><div class="kp-list">${kps.filter(Boolean).map(p=>`<div class="kp-item"><span class="kp-arrow">→</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
       :'';
     body.innerHTML=`<div class="vs"><div class="vs-l">💡 Summary</div><div class="vs-box">${esc(n.summary)}</div></div>${kpHtml}`;
   }
+}
+function copyNotes(){
+  const n=currentViewNote;if(!n)return;
+  const text=str(n.organizedContent);
+  navigator.clipboard.writeText(text).then(()=>showToast('📋 Copied to clipboard!')).catch(()=>{
+    // fallback
+    const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+    showToast('📋 Copied!');
+  });
 }
 function openView(key){
   const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
@@ -758,11 +787,8 @@ function openEdit(key){
   const n=window.allNotes.find(x=>(x.fbKey===key||String(x.id)===String(key)));
   if(!n)return;
   editingKey=key;
-  const kpItems=(n.keyPoints||[]).map((kp,i)=>`
-    <div class="kp-edit-row" id="kp-row-${i}">
-      <input class="ef-in" id="kp-${i}" value="${esc(kp)}">
-      <button class="kp-rm" onclick="removeKP(${i})" title="Remove">×</button>
-    </div>`).join('');
+  // Show rawNote if available, otherwise fall back to organizedContent for older notes
+  const rawVal=str(n.rawNote)||str(n.organizedContent);
   document.getElementById('me-body').innerHTML=`
     <div class="ef"><div class="ef-l">Title</div><input class="ef-in" id="ef-title" value="${esc(n.title)}"></div>
     <div class="ef-row">
@@ -774,13 +800,13 @@ function openEdit(key){
         </select>
       </div>
     </div>
-    <div class="ef"><div class="ef-l">Summary</div><textarea class="ef-in ef-ta" id="ef-summary">${esc(n.summary)}</textarea></div>
-    <div class="ef">
-      <div class="ef-l">Key Points</div>
-      <div class="kp-edit-list" id="kp-list">${kpItems}</div>
-      <button class="kp-add" onclick="addKP()">+ Add Key Point</button>
+    <div class="ef" style="flex:1;display:flex;flex-direction:column">
+      <div class="ef-l">Your Notes</div>
+      <textarea class="ef-in ef-ta tall" id="ef-rawnote" style="flex:1;min-height:220px">${esc(rawVal)}</textarea>
     </div>
-    <div class="ef"><div class="ef-l">Organized Notes</div><textarea class="ef-in ef-ta tall" id="ef-content">${esc(n.organizedContent)}</textarea></div>`;
+    <div style="background:var(--ag2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;font-size:12px;color:var(--text-m);display:flex;align-items:center;gap:8px;margin-top:4px">
+      <span>🤖</span><span>I-save mo — mag-re-organize si AI gamit ang edited notes mo.</span>
+    </div>`;
   closeView();
   document.getElementById('ov-edit').classList.add('on');
 }
@@ -802,24 +828,45 @@ async function saveEdit(){
   const title=document.getElementById('ef-title').value.trim()||n.title;
   const category=(document.getElementById('ef-cat').value.trim()||n.category).toUpperCase().replace(/\s+/g,'_');
   const isPublic=document.getElementById('ef-vis').value==='public';
-  const summary=document.getElementById('ef-summary').value.trim();
-  const organizedContent=document.getElementById('ef-content').value.trim();
-  const keyPoints=[...document.querySelectorAll('#kp-list .kp-edit-row input')].map(i=>i.value.trim()).filter(Boolean);
-  const updates={title,category,isPublic,summary,organizedContent,keyPoints};
+  const rawNote=document.getElementById('ef-rawnote').value.trim();
   const btn=document.getElementById('save-btn');
-  btn.disabled=true;btn.textContent='Saving...';
-  if(window._db&&window._update&&window._ref&&n.fbKey){
-    try{
+  btn.disabled=true;
+  btn.innerHTML='<span style="animation:blk 1s infinite alternate;display:inline-block">🤖 Re-organizing...</span>';
+  try{
+    // Re-run AI on edited rawNote
+    function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,vv])=>k+': '+vv).join('\n');return String(v);}
+    function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
+    let updates={title,category,isPublic,rawNote};
+    if(rawNote){
+      const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[{role:'system',content:buildSysPrompt()},{role:'user',content:'I-organize ang notes na ito:\n\n'+rawNote}]})});
+      const data=await res.json();
+      if(!data.error){
+        const raw=data.choices[0].message.content.replace(/```json|```/g,'').trim();
+        try{
+          const p=JSON.parse(raw);
+          // Use AI category if user didn't change it manually, else keep user's
+          const aiCat=(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_');
+          updates={
+            title:title||(ensureStr(p.title)||'Untitled'),
+            category:category!==n.category?category:aiCat,
+            isPublic,rawNote,
+            summary:ensureStr(p.summary),
+            keyPoints:ensureArr(p.keyPoints),
+            organizedContent:ensureStr(p.organizedContent),
+          };
+        }catch(e){console.error('AI parse error',e);}
+      }
+    }
+    if(window._db&&window._update&&window._ref&&n.fbKey){
       await window._update(window._ref(window._db,`notes/${n.fbKey}`),updates);
       await updateAIMemory({...n,...updates});
-      showToast('✅ Note updated!');
-      closeEdit();
-    }catch(err){console.error(err);showToast('⚠️ Failed: '+err.message);}
-  }else{
-    Object.assign(n,updates);renderApp();
-    await updateAIMemory({...n,...updates});
-    showToast('✅ Note updated!');closeEdit();
-  }
+    }else{
+      Object.assign(n,updates);renderApp();
+      await updateAIMemory({...n,...updates});
+    }
+    showToast('✅ Updated & re-organized!');
+    closeEdit();
+  }catch(err){console.error(err);showToast('⚠️ Failed: '+err.message);}
   btn.disabled=false;
   btn.innerHTML='<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Changes';
 }
