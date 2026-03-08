@@ -376,17 +376,20 @@ sessionBlock,
 '1. NOTES ≠ MEMORY. fix_note/bulk_fix = NOTES. add/remove_memory = MEMORY.',
 '2. "tanggalin sa memory" → remove_memory. HINDI bulk_fix.',
 '3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST.',
-'4. Notes actions: kailangan ng "DAPAT I-CONFIRM:" + [ACTION].',
+'4. Notes actions: kailangan ng confirm mula sa user bago i-execute.',
 '5. Memory actions: direkta, walang confirm.',
-'6. Kapag may tatanggalin/baguhin → gawin mo agad, huwag magtanong ng sobra.',
-'7. Sagot: maikli, malinaw, Filipino/English mix.',
+'6. reOrganize:true — lagyan LANG kapag kailangan i-rewrite ang content/summary/organizedContent. Kung title or category lang ang babaguhin, WALA nang reOrganize (para hindi ma-overwrite ang ibang fields ng user).',
+'7. Huwag baguhin ang rawNote field — bawal yan.',
+'8. TONE: Makipag-chat lang ng natural, parang kaibigan. Huwag robotic. Huwag formal na "Natagpuan ko..." o "Ipapakita ko...".',
+'9. Halimbawa ng magandang tone: "Ay yung \"Kamo Nog Nog Bato\" note 😄 Mukhang random text lang yan ah. Ayusin ko? Title, category, at content niya." — tapos [ACTION].',
 '',
 'PROACTIVE:',
 '• Kung may obvious na mali sa notes → sabihin mo kahit hindi tinatanong.',
 '• Mag-suggest ng follow-up actions pagkatapos mag-execute.',
 '',
 'ACTION FORMATS:',
-'fix_note:          {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT","title":"..."},"reOrganize":true}',
+'fix_note (title/category lang):  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW TITLE","category":"CAT"}} ← walang reOrganize',
+'fix_note (i-rewrite content):    {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT"},"reOrganize":true} ← may reOrganize:true ONLY kung content rewrite ang hiningi',
 'bulk_fix:          {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}],"reason":"...","reOrganize":true}',
 'add_memory:        {"type":"add_memory","data":{"key":"slug","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}',
 'update_memory:     {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","summary":"..."}}',
@@ -466,7 +469,7 @@ async function executeAIAction(actionObj) {
     if (!isMyNote(n)) return 'Hindi mo note ito: "'+n.title+'"';
     if (updates.category) updates.category=updates.category.toUpperCase().replace(/\s+/g,'_');
     var finalUpdates=Object.assign({},updates);
-    if (reOrganize!==false&&(n.rawNote||n.organizedContent)) {
+    if (reOrganize===true&&(n.rawNote||n.organizedContent)) {
       try {
         var content=n.rawNote&&n.rawNote!=='[image]'?n.rawNote:n.organizedContent||n.title;
         var res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -498,7 +501,8 @@ async function executeAIAction(actionObj) {
         await window.updateAIMemory(Object.assign({},n,finalUpdates));
       } else {Object.assign(n,finalUpdates);renderApp();}
       AI_SESSION.confirmedActions.push('Fixed note: "'+n.title+'"');
-      return 'Fixed: "'+n.title+'"';
+      var newTitle = finalUpdates.title || n.title;
+      return 'Done na! ✅ "'+newTitle+'" na-update na — title, category, summary, at content niya. Tingnan mo sa notes list 👀';
     } catch(e){return 'Fix failed: '+e.message;}
   }
 
@@ -512,7 +516,7 @@ async function executeAIAction(actionObj) {
       if (!tn||!isMyNote(tn)){results.push('Skip: '+tfbKey);continue;}
       if (tupdates.category) tupdates.category=tupdates.category.toUpperCase().replace(/\s+/g,'_');
       var tFinal=Object.assign({},tupdates);
-      if (reOrg!==false&&(tn.rawNote||tn.organizedContent)) {
+      if (reOrg===true&&(tn.rawNote||tn.organizedContent)) {
         try {
           var tc2=tn.rawNote&&tn.rawNote!=='[image]'?tn.rawNote:tn.organizedContent||tn.title;
           var tres=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -547,7 +551,7 @@ async function executeAIAction(actionObj) {
     }
     renderApp();
     AI_SESSION.confirmedActions.push('Bulk fixed '+results.length+' notes');
-    return 'Bulk fix done! ('+results.length+')\n'+results.join('\n')+(reason?'\n\nReason: '+reason:'');
+    return 'Tapos na! ✅ '+results.length+' notes na-fix:\n'+results.map(function(r){return '• '+r;}).join('\n')+(reason?'\n\n'+reason:'')+'\n\nTingnan mo na sa notes list 😊';
   }
 
   if (type==='add_memory'||type==='update_memory') {
@@ -1515,6 +1519,38 @@ function toggleAIChat(){if(aiChatOpen)closeAIChat();else openAIChat();}
 // INIT
 // ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',function(){
+  // Patch note view modal to show organizedContent (not just rawNote) in Notes tab
+  setTimeout(function patchOpenView(){
+    if(typeof window.openView==='function' && !window._openViewPatched){
+      var _origOpenView = window.openView;
+      window.openView = function(idOrFbKey){
+        _origOpenView.apply(this, arguments);
+        // After modal opens, patch the Notes tab content
+        setTimeout(function(){
+          var mvBody = document.getElementById('mv-body');
+          if(!mvBody) return;
+          var note = (window.allNotes||[]).find(function(n){ return n.fbKey===idOrFbKey||String(n.id)===String(idOrFbKey); });
+          if(!note) return;
+          // Only patch if organizedContent exists and is different from rawNote
+          if(!note.organizedContent || note.organizedContent===note.rawNote) return;
+          var boxes = mvBody.querySelectorAll('.vs-box');
+          if(boxes.length > 0){
+            var firstBox = boxes[0];
+            // Check if it's showing raw content (Notes tab)
+            var rawText = String(note.rawNote||'').trim();
+            var orgText = String(note.organizedContent||'').trim();
+            if(firstBox.textContent.trim()===rawText && orgText && orgText!==rawText){
+              firstBox.innerHTML = orgText.replace(/\n/g,'<br>');
+            }
+          }
+        }, 80);
+      };
+      window._openViewPatched = true;
+    } else if(!window._openViewPatched) {
+      setTimeout(patchOpenView, 200);
+    }
+  }, 500);
+
   var input=document.getElementById('ai-chat-input'); if(!input) return;
   input.addEventListener('keydown',function(e){
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIChat();}
