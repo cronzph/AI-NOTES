@@ -11,6 +11,7 @@ const AI_CHAT_HISTORY = [];
 let aiChatOpen           = false;
 let _pendingAction       = null;
 let _quickPromptsVisible = true;
+let _chatImgB64          = null;   // base64 image attached to current chat message
 
 // ── Session state: remembers decisions this session ──────────
 const AI_SESSION = {
@@ -759,14 +760,107 @@ async function tryProactiveConfirm(msg) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// CHAT IMAGE ATTACHMENT
+// ─────────────────────────────────────────────────────────────
+function patchChatInputArea() {
+  if (document.getElementById('ai-chat-img-btn')) return;
+  var wrap = document.querySelector('.ai-chat-input-wrap');
+  if (!wrap) return;
+
+  // Hidden file input
+  var fi = document.createElement('input');
+  fi.type='file'; fi.accept='image/*'; fi.id='ai-chat-fi';
+  fi.style.display='none';
+  fi.addEventListener('change', function(e){ var f=e.target.files[0]; if(f) loadChatImg(f); fi.value=''; });
+  wrap.parentNode.insertBefore(fi, wrap);
+
+  // Image preview strip (shown above input wrap when image attached)
+  var strip = document.createElement('div');
+  strip.id='ai-chat-img-strip';
+  strip.style.cssText='display:none;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);background:var(--surface2);flex-shrink:0;';
+  strip.innerHTML=
+    '<div id="ai-chat-img-thumb" style="position:relative;width:48px;height:48px;border-radius:8px;overflow:hidden;border:1px solid var(--border-h);flex-shrink:0;cursor:zoom-in">'
+    +'<img id="ai-chat-img-preview" style="width:100%;height:100%;object-fit:cover;display:block" src="" alt="">'
+    +'<button id="ai-chat-img-rm" style="position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:rgba(0,0,0,0.75);color:#fff;font-size:9px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0" title="Remove">&#x2715;</button>'
+    +'</div>'
+    +'<span style="font-size:11px;color:var(--text-m);font-family:\'JetBrains Mono\',monospace">Image attached — AI will analyze it</span>';
+  wrap.parentNode.insertBefore(strip, wrap);
+
+  document.getElementById('ai-chat-img-rm').addEventListener('click', function(e){
+    e.stopPropagation(); clearChatImg();
+  });
+  document.getElementById('ai-chat-img-thumb').addEventListener('click', function(){
+    var src = document.getElementById('ai-chat-img-preview').src;
+    if (src && src !== window.location.href) {
+      var lb = document.getElementById('lightbox');
+      var lbi = document.getElementById('lightbox-img');
+      if (lb && lbi) { lbi.src=src; lb.classList.add('on'); }
+    }
+  });
+
+  // Attach button (+ image icon) — insert before the textarea
+  var btn = document.createElement('button');
+  btn.id='ai-chat-img-btn';
+  btn.style.cssText='width:34px;height:34px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-m);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.18s;';
+  btn.title='Attach image';
+  btn.innerHTML='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+  btn.addEventListener('mouseenter', function(){ btn.style.borderColor='var(--a)'; btn.style.color='var(--a2)'; });
+  btn.addEventListener('mouseleave', function(){ btn.style.borderColor='var(--border)'; btn.style.color='var(--text-m)'; });
+  btn.addEventListener('click', function(){ document.getElementById('ai-chat-fi').click(); });
+  wrap.insertBefore(btn, wrap.firstChild);
+
+  // Paste image into chat
+  document.addEventListener('paste', function(e){
+    if (!aiChatOpen) return;
+    for (var i=0; i<(e.clipboardData&&e.clipboardData.items||[]).length; i++){
+      var item = e.clipboardData.items[i];
+      if (item.type.startsWith('image/')){
+        var f = item.getAsFile(); if (f) { loadChatImg(f); break; }
+      }
+    }
+  });
+}
+
+function loadChatImg(file) {
+  var r = new FileReader();
+  r.onload = function(ev) {
+    _chatImgB64 = ev.target.result.split(',')[1];
+    var strip = document.getElementById('ai-chat-img-strip');
+    var preview = document.getElementById('ai-chat-img-preview');
+    if (strip && preview) { preview.src = ev.target.result; strip.style.display='flex'; }
+    var btn = document.getElementById('ai-chat-img-btn');
+    if (btn) { btn.style.borderColor='var(--a)'; btn.style.color='var(--a2)'; btn.style.background='var(--ag)'; }
+    var inp = document.getElementById('ai-chat-input');
+    if (inp) inp.focus();
+  };
+  r.readAsDataURL(file);
+}
+
+function clearChatImg() {
+  _chatImgB64 = null;
+  var strip = document.getElementById('ai-chat-img-strip');
+  var preview = document.getElementById('ai-chat-img-preview');
+  if (strip) strip.style.display='none';
+  if (preview) preview.src='';
+  var btn = document.getElementById('ai-chat-img-btn');
+  if (btn) { btn.style.borderColor=''; btn.style.color=''; btn.style.background=''; }
+}
+
+// ─────────────────────────────────────────────────────────────
 // MAIN SEND
 // ─────────────────────────────────────────────────────────────
 async function sendAIChat() {
   var input = document.getElementById('ai-chat-input');
-  var msg = input && input.value && input.value.trim();
-  if (!msg) return;
+  var msg = input ? (input.value||'').trim() : '';
+  var hasImg = !!_chatImgB64;
+  if (!msg && !hasImg) return;
   input.value=''; input.style.height='';
-  appendChatMsg('user', msg);
+  // Show user message (with image preview if attached)
+  if (hasImg) {
+    appendChatMsgWithImg('user', msg||'🖼️ [image]', _chatImgB64);
+  } else {
+    appendChatMsg('user', msg);
+  }
   AI_SESSION.messageCount++;
 
   // ── 1. Pending note-action confirmation ─────────────────
@@ -840,21 +934,39 @@ async function sendAIChat() {
     ? msg + '\n[DETECTED INTENT: '+intentResult.intent+']'
     : msg;
 
-  AI_CHAT_HISTORY.push({role:'user',content:msg});
+  // Capture and clear image before async work
+  var currentImgB64 = _chatImgB64;
+  clearChatImg();
+
+  // Build history entry — multimodal if image present
+  var historyUserContent = currentImgB64
+    ? [ {type:'text', text:augmentedMsg||'Analyze this image in context of my notes.'},
+        {type:'image_url', image_url:{url:'data:image/jpeg;base64,'+currentImgB64}} ]
+    : augmentedMsg;
+  AI_CHAT_HISTORY.push({role:'user', content: msg||'[image]'});
+
   var tid=appendChatTyping();
   setSendBtn(true);
 
   // Use longer history window for better context
+  // For vision: only last message can have image (API limitation), rest are text
   var historyForAI = AI_CHAT_HISTORY.slice(-20).slice();
   var lastIdx = historyForAI.length - 1;
-  historyForAI[lastIdx] = {role:'user', content:augmentedMsg};
+  historyForAI[lastIdx] = {role:'user', content: historyUserContent};
+
+  var useVision = !!currentImgB64;
+  var apiModel = useVision ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
+  // Vision model doesn't support system role — prepend as first user message
+  var apiMessages = useVision
+    ? [{role:'user', content:[{type:'text',text:buildAIInstructorPrompt()+'\n\nNow respond to the user:'}]}].concat(historyForAI)
+    : [{role:'system', content:buildAIInstructorPrompt()}].concat(historyForAI);
 
   try {
     var res=await fetch(GROQ_URL,{
       method:'POST', headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'llama-3.3-70b-versatile', max_tokens:1200,
-        messages:[{role:'system',content:buildAIInstructorPrompt()}].concat(historyForAI)
+        model: apiModel, max_tokens:1200,
+        messages: apiMessages
       })
     });
     var data=await res.json();
@@ -940,6 +1052,30 @@ function appendChatMsg(role,text){
     .replace(/\n/g,'<br>')+'</div>';
   feed.appendChild(div); scrollChatToBottom();
 }
+function appendChatMsgWithImg(role, text, imgB64){
+  var feed=document.getElementById('ai-chat-feed'); if(!feed) return;
+  var div=document.createElement('div'); div.className='aicm aicm-'+role;
+  var bubble=document.createElement('div'); bubble.className='aicm-bubble';
+  // Image thumbnail
+  var imgWrap=document.createElement('div');
+  imgWrap.style.cssText='margin-bottom:6px;border-radius:10px;overflow:hidden;max-width:180px;border:1px solid rgba(255,255,255,0.1);cursor:zoom-in';
+  var img=document.createElement('img');
+  img.src='data:image/jpeg;base64,'+imgB64;
+  img.style.cssText='width:100%;display:block;max-height:120px;object-fit:cover';
+  img.addEventListener('click',function(){
+    var lb=document.getElementById('lightbox'),lbi=document.getElementById('lightbox-img');
+    if(lb&&lbi){lbi.src=img.src;lb.classList.add('on');}
+  });
+  imgWrap.appendChild(img); bubble.appendChild(imgWrap);
+  // Text
+  if(text&&text!=='🖼️ [image]'){
+    var txt=document.createElement('div');
+    txt.innerHTML=escChat(text).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+    bubble.appendChild(txt);
+  }
+  div.appendChild(bubble); feed.appendChild(div); scrollChatToBottom();
+}
+
 function appendChatTyping(){
   var id='ty-'+(++_typingCounter);
   var feed=document.getElementById('ai-chat-feed'); if(!feed) return id;
@@ -1318,7 +1454,7 @@ function patchAIPanelHeader(){
 // PANEL OPEN / CLOSE
 // ─────────────────────────────────────────────────────────────
 function openAIChat(){
-  injectAIPanelStyles(); patchAIPanelHeader();
+  injectAIPanelStyles(); patchAIPanelHeader(); patchChatInputArea();
   aiChatOpen=true;
   var panel=document.getElementById('ai-chat-panel');
   var fab=document.getElementById('ai-fab');
