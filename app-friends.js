@@ -205,12 +205,13 @@ async function unshareNoteWith(fbKey, uid) {
 // SHARE MODAL — opens from note card/view
 // ─────────────────────────────────────────────────────────────
 function openShareModal(fbKey) {
-  var note = (window.allNotes || []).find(function(n){ return n.fbKey === fbKey; });
-  if (!note) return;
-
   injectFriendStyles();
   var existing = document.getElementById('share-modal-overlay');
   if (existing) existing.remove();
+
+  // Always read fresh from allNotes (realtime-updated by Firebase onValue)
+  var note = (window.allNotes || []).find(function(n){ return n.fbKey === fbKey; });
+  if (!note) return;
 
   var friends = Object.values(window.myFriends || {});
   var sharedWith = note.sharedWith || {};
@@ -327,7 +328,7 @@ function openFriendsPanel() {
 
   var overlay = document.createElement('div');
   overlay.className = 'friend-overlay'; overlay.id = 'friends-panel-overlay';
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) cleanup(); });
 
   var box = document.createElement('div'); box.className = 'friend-modal friend-panel-wide';
 
@@ -335,26 +336,38 @@ function openFriendsPanel() {
   var head = document.createElement('div'); head.className = 'friend-modal-head';
   head.innerHTML = '<div class="friend-modal-title">👥 Friends</div>';
   var closeBtn = document.createElement('button'); closeBtn.className = 'friend-modal-close'; closeBtn.innerHTML = '✕';
-  closeBtn.addEventListener('click', function(){ overlay.remove(); });
+  closeBtn.addEventListener('click', cleanup);
   head.appendChild(closeBtn); box.appendChild(head);
 
   // Tabs
   var tabs = document.createElement('div'); tabs.className = 'friend-tabs';
+
+  var pendingCount = Object.keys(window.pendingRequests||{}).filter(function(k){return window.pendingRequests[k].status==='pending';}).length;
+  var sharedByMeCount = (window.allNotes||[]).filter(function(n){
+    return isMyNote(n) && n.sharedWith && Object.keys(n.sharedWith).length > 0;
+  }).length;
+
   var tabDefs = [
-    { id:'friends', label:'Friends (' + Object.keys(window.myFriends||{}).length + ')' },
-    { id:'requests', label:'Requests' + (Object.keys(window.pendingRequests||{}).filter(function(k){return window.pendingRequests[k].status==='pending';}).length > 0 ? ' 🔴' : '') },
-    { id:'search', label:'+ Add Friend' },
+    { id:'friends',   label:'Friends (' + Object.keys(window.myFriends||{}).length + ')' },
+    { id:'requests',  label:'Requests' + (pendingCount > 0 ? ' 🔴' : '') },
+    { id:'sharedme',  label:'Shared by Me' + (sharedByMeCount > 0 ? ' (' + sharedByMeCount + ')' : '') },
+    { id:'search',    label:'+ Add Friend' },
   ];
 
   var bodies = {};
+  var activeTab = 'friends';
+
   tabDefs.forEach(function(t, i){
     var btn = document.createElement('button'); btn.className = 'friend-tab' + (i===0?' active':'');
-    btn.textContent = t.label; btn.dataset.tab = t.id;
+    btn.textContent = t.label; btn.dataset.tab = t.id; btn.id = 'ftab-btn-' + t.id;
     btn.addEventListener('click', function(){
       tabs.querySelectorAll('.friend-tab').forEach(function(b){ b.classList.remove('active'); });
       btn.classList.add('active');
+      activeTab = t.id;
       Object.keys(bodies).forEach(function(k){ bodies[k].style.display = 'none'; });
       bodies[t.id].style.display = 'flex';
+      // Re-render on tab switch to reflect latest data
+      refreshTab(t.id);
     });
     tabs.appendChild(btn);
   });
@@ -363,33 +376,69 @@ function openFriendsPanel() {
   var bodyWrap = document.createElement('div'); bodyWrap.className = 'friend-modal-body';
 
   // ── FRIENDS LIST ──
-  var fBody = document.createElement('div'); fBody.className = 'friend-tab-body';
+  var fBody = document.createElement('div'); fBody.className = 'friend-tab-body'; fBody.id = 'ftab-friends';
   bodies['friends'] = fBody;
   renderFriendsList(fBody);
 
   // ── REQUESTS ──
-  var rBody = document.createElement('div'); rBody.className = 'friend-tab-body';
+  var rBody = document.createElement('div'); rBody.className = 'friend-tab-body'; rBody.id = 'ftab-requests';
   rBody.style.display = 'none';
   bodies['requests'] = rBody;
   renderRequestsList(rBody);
 
+  // ── SHARED BY ME ──
+  var smBody = document.createElement('div'); smBody.className = 'friend-tab-body'; smBody.id = 'ftab-sharedme';
+  smBody.style.display = 'none';
+  bodies['sharedme'] = smBody;
+  renderSharedByMe(smBody);
+
   // ── SEARCH / ADD ──
-  var sBody = document.createElement('div'); sBody.className = 'friend-tab-body';
+  var sBody = document.createElement('div'); sBody.className = 'friend-tab-body'; sBody.id = 'ftab-search';
   sBody.style.display = 'none';
   bodies['search'] = sBody;
   renderSearchPanel(sBody);
 
   bodyWrap.appendChild(fBody);
   bodyWrap.appendChild(rBody);
+  bodyWrap.appendChild(smBody);
   bodyWrap.appendChild(sBody);
   box.appendChild(bodyWrap);
 
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
-  // ESC to close
-  var esc = function(e){ if(e.key==='Escape'){ overlay.remove(); document.removeEventListener('keydown',esc); }};
-  document.addEventListener('keydown', esc);
+  // ── REALTIME: re-render active tab when data changes ──
+  function refreshTab(tab) {
+    if (tab === 'friends') renderFriendsList(bodies['friends']);
+    else if (tab === 'requests') renderRequestsList(bodies['requests']);
+    else if (tab === 'sharedme') renderSharedByMe(bodies['sharedme']);
+    // Update tab labels too
+    updateTabLabels();
+  }
+
+  function updateTabLabels() {
+    var pc = Object.keys(window.pendingRequests||{}).filter(function(k){return window.pendingRequests[k].status==='pending';}).length;
+    var sc = (window.allNotes||[]).filter(function(n){ return isMyNote(n) && n.sharedWith && Object.keys(n.sharedWith).length > 0; }).length;
+    var fb = document.getElementById('ftab-btn-friends'); if(fb) fb.textContent = 'Friends (' + Object.keys(window.myFriends||{}).length + ')';
+    var rb = document.getElementById('ftab-btn-requests'); if(rb) rb.textContent = 'Requests' + (pc > 0 ? ' 🔴' : '');
+    var sb = document.getElementById('ftab-btn-sharedme'); if(sb) sb.textContent = 'Shared by Me' + (sc > 0 ? ' (' + sc + ')' : '');
+  }
+
+  // Poll-free: hook into existing onValue streams via a watcher interval
+  // (onValue listeners already update window.myFriends / pendingRequests / allNotes)
+  var liveInterval = setInterval(function() {
+    if (!document.getElementById('friends-panel-overlay')) { clearInterval(liveInterval); return; }
+    refreshTab(activeTab);
+  }, 1500);
+
+  function cleanup() {
+    clearInterval(liveInterval);
+    overlay.remove();
+    document.removeEventListener('keydown', escHandler);
+  }
+
+  var escHandler = function(e){ if(e.key==='Escape') cleanup(); };
+  document.addEventListener('keydown', escHandler);
 }
 
 function renderFriendsList(container) {
@@ -459,6 +508,72 @@ function renderRequestsList(container) {
       container.appendChild(row);
     });
   }
+}
+
+function renderSharedByMe(container) {
+  container.innerHTML = '';
+  var mySharedNotes = (window.allNotes || []).filter(function(n) {
+    return isMyNote(n) && n.sharedWith && Object.keys(n.sharedWith).length > 0;
+  });
+
+  if (!mySharedNotes.length) {
+    container.innerHTML = '<div class="friend-empty">Wala ka pang shared notes.<br><span>I-share ang note mo gamit ang 🔗 button sa note card</span></div>';
+    return;
+  }
+
+  mySharedNotes.forEach(function(n) {
+    var sharedUids = Object.keys(n.sharedWith || {});
+    var card = document.createElement('div'); card.className = 'shared-by-me-card';
+
+    // Note info
+    var noteInfo = document.createElement('div'); noteInfo.className = 'sbm-note-info';
+    var catSpan = document.createElement('span'); catSpan.className = 'sbm-cat';
+    catSpan.textContent = (typeof getCatEmoji === 'function' ? getCatEmoji(n.category) : '📌') + ' ' + (n.category || 'NOTE');
+    var titleEl = document.createElement('div'); titleEl.className = 'sbm-title';
+    titleEl.textContent = n.title || 'Untitled';
+    noteInfo.appendChild(catSpan); noteInfo.appendChild(titleEl);
+    card.appendChild(noteInfo);
+
+    // Shared with list
+    var sharedLbl = document.createElement('div'); sharedLbl.className = 'sbm-shared-lbl';
+    sharedLbl.textContent = 'Shared with:';
+    card.appendChild(sharedLbl);
+
+    var chips = document.createElement('div'); chips.className = 'sbm-chips';
+    sharedUids.forEach(function(uid) {
+      // Try to get display name from friends list
+      var friend = window.myFriends[uid];
+      var dname = friend ? friend.displayName : uid.slice(0, 8) + '...';
+
+      var chip = document.createElement('div'); chip.className = 'sbm-chip';
+      var av = document.createElement('span'); av.className = 'sbm-chip-av';
+      av.textContent = dname[0].toUpperCase();
+      var nm = document.createElement('span'); nm.className = 'sbm-chip-name';
+      nm.textContent = dname;
+      var rmX = document.createElement('button'); rmX.className = 'sbm-chip-rm'; rmX.title = 'Unshare';
+      rmX.innerHTML = '✕';
+      rmX.addEventListener('click', async function() {
+        rmX.disabled = true;
+        await unshareNoteWith(n.fbKey, uid);
+        chip.remove();
+        // If no more shares, remove card
+        if (!chips.children.length) card.remove();
+      });
+      chip.appendChild(av); chip.appendChild(nm); chip.appendChild(rmX);
+      chips.appendChild(chip);
+    });
+    card.appendChild(chips);
+
+    // Manage share button
+    var manageBtn = document.createElement('button'); manageBtn.className = 'sbm-manage-btn';
+    manageBtn.textContent = '🔗 Manage Sharing';
+    manageBtn.addEventListener('click', function() {
+      openShareModal(n.fbKey);
+    });
+    card.appendChild(manageBtn);
+
+    container.appendChild(card);
+  });
 }
 
 function renderSearchPanel(container) {
@@ -669,7 +784,21 @@ function injectFriendStyles() {
 .friend-action-btn:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(59,130,246,0.45)}
 .friend-action-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
 
-/* ── Nav friend button ── */
+/* ── Shared by Me ── */
+.shared-by-me-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color 0.2s}
+.shared-by-me-card:hover{border-color:var(--border-h)}
+.sbm-note-info{display:flex;flex-direction:column;gap:3px}
+.sbm-cat{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--a2);font-family:'JetBrains Mono',monospace}
+.sbm-title{font-size:13px;font-weight:700;color:var(--text-b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sbm-shared-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-m)}
+.sbm-chips{display:flex;flex-wrap:wrap;gap:6px}
+.sbm-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface3);border:1px solid var(--border-h);border-radius:20px;padding:4px 10px 4px 6px;font-size:12px;color:var(--text-b)}
+.sbm-chip-av{width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22d3ee);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0}
+.sbm-chip-name{font-weight:600;font-size:12px}
+.sbm-chip-rm{background:none;border:none;color:var(--text-m);cursor:pointer;font-size:11px;padding:0;line-height:1;transition:color 0.15s;display:flex;align-items:center}
+.sbm-chip-rm:hover{color:#f87171}
+.sbm-manage-btn{align-self:flex-start;padding:5px 12px;border-radius:8px;background:var(--ag);border:1px solid var(--border-h);color:var(--a2);font-size:11px;font-weight:700;cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s}
+.sbm-manage-btn:hover{background:rgba(59,130,246,0.18);border-color:var(--a)}
 .friend-nav-btn{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.2s;color:var(--text-m);flex-shrink:0}
 .friend-nav-btn:hover{border-color:var(--border-h);color:var(--text-b)}
 #friend-notif-badge{position:absolute;top:-5px;right:-5px;width:17px;height:17px;background:#f87171;border-radius:50%;font-size:9px;font-weight:800;color:#fff;display:none;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;border:2px solid var(--bg)}
