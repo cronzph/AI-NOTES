@@ -375,7 +375,8 @@ sessionBlock,
 'CORE RULES:',
 '1. NOTES ≠ MEMORY. fix_note/bulk_fix = NOTES. add/remove_memory = MEMORY.',
 '2. "tanggalin sa memory" → remove_memory. HINDI bulk_fix.',
-'3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST.',
+'3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST sa ibaba. ',
+'   HUWAG gumawa ng sariling fbKey. Huwag i-compute o i-guess. Kunin LITERAL mula sa listahan.',
 '4. Notes actions: kailangan ng confirm mula sa user bago i-execute.',
 '5. Memory actions: direkta, walang confirm.',
 '6. reOrganize:true — lagyan LANG kapag kailangan i-rewrite ang content/summary/organizedContent. Kung title or category lang ang babaguhin, WALA nang reOrganize (para hindi ma-overwrite ang ibang fields ng user).',
@@ -499,10 +500,13 @@ async function executeAIAction(actionObj) {
       if (window._db&&window._update&&window._ref) {
         await window._update(window._ref(window._db,'notes/'+fbKey),finalUpdates);
         await window.updateAIMemory(Object.assign({},n,finalUpdates));
-      } else {Object.assign(n,finalUpdates);renderApp();}
+      }
+      // Always update local copy so AI sees fresh data on next message
+      Object.assign(n,finalUpdates);
+      renderApp();
       AI_SESSION.confirmedActions.push('Fixed note: "'+n.title+'"');
       var newTitle = finalUpdates.title || n.title;
-      return 'Done na! ✅ "'+newTitle+'" na-update na — title, category, summary, at content niya. Tingnan mo sa notes list 👀';
+      return 'Done na! ✅ "'+newTitle+'" na-update na. Tingnan mo na 👀';
     } catch(e){return 'Fix failed: '+e.message;}
   }
 
@@ -545,8 +549,10 @@ async function executeAIAction(actionObj) {
         if (window._db&&window._update&&window._ref) {
           await window._update(window._ref(window._db,'notes/'+tfbKey),tFinal);
           await window.updateAIMemory(Object.assign({},tn,tFinal));
-        } else {Object.assign(tn,tFinal);}
-        results.push('"'+tn.title+'" → ['+tFinal.category+']');
+        }
+        // Always update local copy
+        Object.assign(tn,tFinal);
+        results.push('"'+(tFinal.title||tn.title)+'" → ['+(tFinal.category||tn.category)+']');
       } catch(e2){results.push('"'+tn.title+'": '+e2.message);}
     }
     renderApp();
