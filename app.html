@@ -808,7 +808,18 @@ async function saveNote(p,source,rawNote=''){
   await updateAIMemory(note);
 }
 
-async function toggleNoteVisibility(fbKey,currentIsPublic,e){
+function confirmEdit(fbKeyOrId) {
+  const _n = window.allNotes.find(x => x.fbKey === fbKeyOrId || String(x.id) === String(fbKeyOrId));
+  if (_n && !isMyNote(_n)) { showToast('⚠️ Hindi mo ma-edit ang notes ng iba.'); return; }
+  showConfirm({
+    icon: '✏️',
+    title: 'Edit this note?',
+    message: '"' + ((_n && _n.title) || 'Note').slice(0, 50) + '"',
+    confirmLabel: 'Edit',
+    confirmClass: 'primary',
+    onConfirm: function() { if (typeof openEdit === 'function') openEdit(fbKeyOrId); }
+  });
+}
   if(e)e.stopPropagation();
   const newVal=!currentIsPublic;
   if(window._db&&window._update&&window._ref&&fbKey){
@@ -821,16 +832,88 @@ async function toggleNoteVisibility(fbKey,currentIsPublic,e){
   }
 }
 
+/* ── Confirm Modal ── */
+function showConfirm(opts) {
+  // opts: { title, message, confirmLabel, confirmClass, onConfirm }
+  var existing = document.getElementById('confirm-overlay');
+  if (existing) existing.remove();
+
+  var ov = document.createElement('div');
+  ov.id = 'confirm-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:700;background:rgba(0,0,0,0.82);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;animation:fmo-in 0.18s ease';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--surface);border:1px solid var(--border-h);border-radius:18px;width:100%;max-width:360px;padding:24px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 80px rgba(0,0,0,0.6);animation:fmo-slide 0.22s cubic-bezier(0.34,1.56,0.64,1)';
+
+  var ico = document.createElement('div');
+  ico.style.cssText = 'font-size:28px;text-align:center';
+  ico.textContent = opts.icon || '⚠️';
+
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:15px;font-weight:800;color:var(--text-b);text-align:center';
+  title.textContent = opts.title || 'Are you sure?';
+
+  var msg = document.createElement('div');
+  msg.style.cssText = 'font-size:13px;color:var(--text);text-align:center;line-height:1.6';
+  msg.textContent = opts.message || '';
+
+  var btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:8px;margin-top:4px';
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface2);color:var(--text-m);font-family:Outfit,sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onmouseover = function(){ this.style.borderColor='var(--border-h)'; this.style.color='var(--text-b)'; };
+  cancelBtn.onmouseout = function(){ this.style.borderColor='var(--border)'; this.style.color='var(--text-m)'; };
+  cancelBtn.onclick = function(){ ov.remove(); };
+
+  var confirmBtn = document.createElement('button');
+  var isDanger = opts.confirmClass === 'danger';
+  confirmBtn.style.cssText = 'flex:1;padding:11px;border:none;border-radius:10px;background:'
+    + (isDanger ? 'linear-gradient(135deg,#ef4444,#b91c1c)' : 'linear-gradient(135deg,#3b82f6,#1d4ed8)')
+    + ';color:#fff;font-family:Outfit,sans-serif;font-size:13px;font-weight:800;cursor:pointer;transition:all 0.2s;box-shadow:0 4px 14px '
+    + (isDanger ? 'rgba(239,68,68,0.3)' : 'rgba(59,130,246,0.3)');
+  confirmBtn.textContent = opts.confirmLabel || 'Confirm';
+  confirmBtn.onmouseover = function(){ this.style.transform='translateY(-1px)'; };
+  confirmBtn.onmouseout = function(){ this.style.transform=''; };
+  confirmBtn.onclick = function(){
+    ov.remove();
+    if (opts.onConfirm) opts.onConfirm();
+  };
+
+  btns.appendChild(cancelBtn); btns.appendChild(confirmBtn);
+  if (opts.message) {
+    box.appendChild(ico); box.appendChild(title); box.appendChild(msg); box.appendChild(btns);
+  } else {
+    box.appendChild(ico); box.appendChild(title); box.appendChild(btns);
+  }
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+
+  var esc = function(e){ if(e.key==='Escape'){ ov.remove(); document.removeEventListener('keydown',esc); }};
+  document.addEventListener('keydown', esc);
+  setTimeout(function(){ confirmBtn.focus(); }, 80);
+}
+
 async function delNote(fbKey,id,e){
   if(e)e.stopPropagation();
   const _n=window.allNotes.find(x=>(x.fbKey===fbKey||String(x.id)===String(id)));
   if(_n&&!isMyNote(_n)){showToast('⚠️ Hindi mo ma-delete ang notes ng iba.');return;}
-  if(!confirm('Delete this note?'))return;
-  closeView();
-  if(window._db&&window._remove&&window._ref&&fbKey){
-    try{await window._remove(window._ref(window._db,`notes/${fbKey}`));showToast('🗑️ Deleted');}
-    catch(err){console.error(err);}
-  }else{window.allNotes=window.allNotes.filter(n=>n.id!==id);renderApp();showToast('🗑️ Deleted');}
+  const title = _n ? (_n.title || 'this note') : 'this note';
+  showConfirm({
+    icon: '🗑️',
+    title: 'Delete Note?',
+    message: '"' + title.slice(0,50) + '" — permanenteng mabubura ito.',
+    confirmLabel: 'Delete',
+    confirmClass: 'danger',
+    onConfirm: async function() {
+      closeView();
+      if(window._db&&window._remove&&window._ref&&fbKey){
+        try{await window._remove(window._ref(window._db,`notes/${fbKey}`));showToast('🗑️ Deleted');}
+        catch(err){console.error(err);showToast('⚠️ Delete failed: '+err.message);}
+      }else{window.allNotes=window.allNotes.filter(n=>n.id!==id);renderApp();showToast('🗑️ Deleted');}
+    }
+  });
 }
 
 function buildAppFilters(){
@@ -853,7 +936,7 @@ function buildCard(n,mine){
   // Share button only for my notes
   const shareBtn=mine?`<button class="anc-btn share-b" onclick="event.stopPropagation();openShareModal('${n.fbKey||''}')" title="Share">🔗</button>`:'';
   const btns=mine
-    ?`${shareBtn}<button class="anc-btn edit-b" onclick="event.stopPropagation();openEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
+    ?`${shareBtn}<button class="anc-btn edit-b" onclick="event.stopPropagation();confirmEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
     :'';
   return`<div class="anc${mine?'':' community'}" onclick="openView('${n.fbKey||n.id}')">
     <div class="nc-stripe" style="background:${getCatStripe(n.category)}"></div>

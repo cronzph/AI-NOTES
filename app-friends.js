@@ -502,63 +502,58 @@ function renderSharedByMe(container) {
   });
 
   if (!mySharedNotes.length) {
-    container.innerHTML = '<div class="friend-empty">Wala ka pang shared notes.<br><span>I-share ang note mo gamit ang 🔗 button sa note card</span></div>';
+    container.innerHTML = '<div class="empty"><div class="empty-ico">📤</div>'
+      + '<div class="empty-t">Wala ka pang shared notes</div>'
+      + '<div class="empty-s">I-share ang note mo gamit ang 🔗 button sa note card</div></div>';
     return;
   }
 
+  var grid = document.createElement('div'); grid.className = 'app-grid';
+
   mySharedNotes.forEach(function(n) {
     var sharedUids = Object.keys(n.sharedWith || {});
-    var card = document.createElement('div'); card.className = 'shared-by-me-card';
+    var stripe = (typeof getCatStripe === 'function') ? getCatStripe(n.category) : '#3b82f6';
+    var pillHtml = (typeof getCatPill === 'function') ? getCatPill(n.category) : 'class="cpill"';
+    var emoji = (typeof getCatEmoji === 'function') ? getCatEmoji(n.category) : '📌';
+    var isPub = n.isPublic === true;
 
-    // Note info
-    var noteInfo = document.createElement('div'); noteInfo.className = 'sbm-note-info';
-    var catSpan = document.createElement('span'); catSpan.className = 'sbm-cat';
-    catSpan.textContent = (typeof getCatEmoji === 'function' ? getCatEmoji(n.category) : '📌') + ' ' + (n.category || 'NOTE');
-    var titleEl = document.createElement('div'); titleEl.className = 'sbm-title';
-    titleEl.textContent = n.title || 'Untitled';
-    noteInfo.appendChild(catSpan); noteInfo.appendChild(titleEl);
-    card.appendChild(noteInfo);
-
-    // Shared with list
-    var sharedLbl = document.createElement('div'); sharedLbl.className = 'sbm-shared-lbl';
-    sharedLbl.textContent = 'Shared with:';
-    card.appendChild(sharedLbl);
-
-    var chips = document.createElement('div'); chips.className = 'sbm-chips';
-    sharedUids.forEach(function(uid) {
-      // Try to get display name from friends list
-      var friend = window.myFriends[uid];
-      var dname = friend ? friend.displayName : uid.slice(0, 8) + '...';
-
-      var chip = document.createElement('div'); chip.className = 'sbm-chip';
-      var av = document.createElement('span'); av.className = 'sbm-chip-av';
-      av.textContent = dname[0].toUpperCase();
-      var nm = document.createElement('span'); nm.className = 'sbm-chip-name';
-      nm.textContent = dname;
-      var rmX = document.createElement('button'); rmX.className = 'sbm-chip-rm'; rmX.title = 'Unshare';
-      rmX.innerHTML = '✕';
-      rmX.addEventListener('click', async function() {
-        rmX.disabled = true;
-        await unshareNoteWith(n.fbKey, uid);
-        chip.remove();
-        // If no more shares, remove card
-        if (!chips.children.length) card.remove();
-      });
-      chip.appendChild(av); chip.appendChild(nm); chip.appendChild(rmX);
-      chips.appendChild(chip);
+    // Shared with chips HTML
+    var friendNames = sharedUids.map(function(uid) {
+      var f = window.myFriends[uid];
+      return f ? f.displayName : uid.slice(0, 8) + '...';
     });
-    card.appendChild(chips);
 
-    // Manage share button
-    var manageBtn = document.createElement('button'); manageBtn.className = 'sbm-manage-btn';
-    manageBtn.textContent = '🔗 Manage Sharing';
-    manageBtn.addEventListener('click', function() {
-      openShareModal(n.fbKey);
-    });
-    card.appendChild(manageBtn);
+    var card = document.createElement('div');
+    card.className = 'anc';
+    card.style.cursor = 'pointer';
+    card.onclick = function() { if (typeof openView === 'function') openView(n.fbKey || n.id); };
 
-    container.appendChild(card);
+    card.innerHTML =
+      '<div class="nc-stripe" style="background:' + stripe + '"></div>'
+      + '<div class="nc-top">'
+      +   '<span ' + pillHtml + '>' + emoji + ' ' + esc2(n.category || 'NOTE') + '</span>'
+      +   '<span class="nc-date">' + esc2(n.date || '') + '</span>'
+      +   '<span class="vis-badge ' + (isPub ? 'pub' : 'priv') + '">' + (isPub ? '🌐' : '🔒') + '</span>'
+      + '</div>'
+      + '<div class="nc-title">' + esc2(n.title || 'Untitled') + '</div>'
+      + '<div class="nc-summary">' + esc2(n.summary || '') + '</div>'
+      + '<div class="sbm-shared-strip">'
+      +   '<span class="sbm-strip-lbl">Shared with:</span>'
+      +   friendNames.map(function(name) {
+            return '<span class="sbm-strip-chip"><span class="sbm-strip-av">' + name[0].toUpperCase() + '</span>' + esc2(name) + '</span>';
+          }).join('')
+      + '</div>'
+      + '<div class="anc-foot">'
+      +   '<div class="anc-src">📄 ' + esc2(n.author || '') + '</div>'
+      +   '<div class="anc-btns">'
+      +     '<button class="anc-btn share-b" onclick="event.stopPropagation();openShareModal(\'' + (n.fbKey || n.id) + '\')" title="Manage sharing">🔗 Manage</button>'
+      +   '</div>'
+      + '</div>';
+
+    grid.appendChild(card);
   });
+
+  container.appendChild(grid);
 }
 
 function renderSearchPanel(container) {
@@ -782,21 +777,11 @@ function injectFriendStyles() {
 .friend-action-btn:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(59,130,246,0.45)}
 .friend-action-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
 
-/* ── Shared by Me ── */
-.shared-by-me-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;display:flex;flex-direction:column;gap:8px;transition:border-color 0.2s}
-.shared-by-me-card:hover{border-color:var(--border-h)}
-.sbm-note-info{display:flex;flex-direction:column;gap:3px}
-.sbm-cat{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--a2);font-family:'JetBrains Mono',monospace}
-.sbm-title{font-size:13px;font-weight:700;color:var(--text-b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sbm-shared-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-m)}
-.sbm-chips{display:flex;flex-wrap:wrap;gap:6px}
-.sbm-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface3);border:1px solid var(--border-h);border-radius:20px;padding:4px 10px 4px 6px;font-size:12px;color:var(--text-b)}
-.sbm-chip-av{width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22d3ee);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0}
-.sbm-chip-name{font-weight:600;font-size:12px}
-.sbm-chip-rm{background:none;border:none;color:var(--text-m);cursor:pointer;font-size:11px;padding:0;line-height:1;transition:color 0.15s;display:flex;align-items:center}
-.sbm-chip-rm:hover{color:#f87171}
-.sbm-manage-btn{align-self:flex-start;padding:5px 12px;border-radius:8px;background:var(--ag);border:1px solid var(--border-h);color:var(--a2);font-size:11px;font-weight:700;cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.2s}
-.sbm-manage-btn:hover{background:rgba(59,130,246,0.18);border-color:var(--a)}
+/* ── Shared by Me strip on cards ── */
+.sbm-shared-strip{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 0 2px;border-top:1px solid var(--border);margin-top:8px}
+.sbm-strip-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-m);flex-shrink:0}
+.sbm-strip-chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface3);border:1px solid var(--border-h);border-radius:20px;padding:2px 8px 2px 4px;font-size:11px;font-weight:600;color:var(--text-b)}
+.sbm-strip-av{width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22d3ee);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0}
 .friend-nav-btn{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.2s;color:var(--text-m);flex-shrink:0}
 .friend-nav-btn:hover{border-color:var(--border-h);color:var(--text-b)}
 #friend-notif-badge{position:absolute;top:-5px;right:-5px;width:17px;height:17px;background:#f87171;border-radius:50%;font-size:9px;font-weight:800;color:#fff;display:none;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;border:2px solid var(--bg)}
