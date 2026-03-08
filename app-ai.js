@@ -1,93 +1,63 @@
 // ============================================================
 // app-ai.js  —  Notes AI Assistant  v2
-// Upgrades:
-//   1. Intent Engine  — understands casual/vague Filipino+English
-//   2. Proactive Mode — suggests fixes on panel open
-//   3. Session Memory — remembers decisions within session
-//   4. Smart Memory   — AI-scored relevance before save/delete
 // ============================================================
 
 const AI_CHAT_HISTORY = [];
 let aiChatOpen           = false;
 let _pendingAction       = null;
 let _quickPromptsVisible = true;
-let _chatImgB64          = null;   // base64 image attached to current chat message
+let _chatImgB64          = null;
 
-// ── Session state: remembers decisions this session ──────────
 const AI_SESSION = {
-  lastSuggestedFixes : [],   // fbKeys suggested for fixing
-  declinedSuggestions: [],   // fbKeys user said no to
-  confirmedActions   : [],   // log of what was done
+  lastSuggestedFixes : [],
+  declinedSuggestions: [],
+  confirmedActions   : [],
   openedAt           : Date.now(),
   messageCount       : 0,
 };
 
 // ─────────────────────────────────────────────────────────────
-// INTENT ENGINE  — understand what the user actually means
-// Works for Filipino, English, and mixed Taglish
+// INTENT ENGINE
 // ─────────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
-  // ── Memory: delete specific ──────────────────────────────
   { intent: 'memory_delete_specific',
     patterns: [/\b(bura|tanggal|delete|remove|alisin|i-delete|itanggal)\b.*\b(memory|memorya)\b/,
                /\b(memory|memorya)\b.*\b(bura|tanggal|delete|remove|alisin)\b/] },
-
-  // ── Memory: check/view ───────────────────────────────────
   { intent: 'memory_view',
     patterns: [/\b(tingnan|tignan|show|ipakita|view|list|check)\b.*\b(memory|memorya)\b/,
                /\b(memory|memorya)\b.*\b(tingnan|show|view|ano|what)\b/,
                /ano.*\b(memory|memorya)\b/,
                /\bmemory\b.*\?/] },
-
-  // ── Memory: clean/decide ─────────────────────────────────
   { intent: 'memory_clean',
     patterns: [/\b(linis|clean|ayos|check)\b.*\b(memory|memorya)\b/,
                /\b(memory|memorya)\b.*\b(linis|clean|ayos|tanggalin.*lahat)\b/,
                /\b(kung meron|kung may)\b.*\b(tanggal|delete|linis)\b/,
                /\btanggalin\b.*\blahat\b.*\b(memory|memorya)\b/] },
-
-  // ── Notes: scan/check errors ─────────────────────────────
   { intent: 'notes_scan',
     patterns: [/\b(scan|check|suriin|tingnan)\b.*\b(notes|mali|error|wrong|kategor|category)\b/,
                /\b(alin|which)\b.*\b(mali|wrong|error|dapat|should)\b/,
                /\b(i-check|i-scan)\b.*\bnotes\b/] },
-
-  // ── Notes: fix one ───────────────────────────────────────
   { intent: 'notes_fix_one',
     patterns: [/\b(ayusin|fix|i-fix|baguhin|update|palitan)\b.*\b(note|isang|yung|yong|ito)\b/,
                /\b(note)\b.*\b(ayusin|fix|i-fix|mali|wrong)\b/] },
-
-  // ── Notes: fix all / bulk ────────────────────────────────
   { intent: 'notes_bulk_fix',
     patterns: [/\b(bulk|lahat|all|bawat)\b.*\b(fix|ayos|ayusin|update|palitan)\b/,
                /\b(fix|ayos)\b.*\b(lahat|all|bulk)\b/,
                /\b(i-bulk)\b/] },
-
-  // ── Behavior: save rule ──────────────────────────────────
   { intent: 'behavior_save',
     patterns: [/\b(huwag|wag|never|palagi|always|lagi)\b.*\b(save|i-save|lagay|ilagay|store)\b/,
                /\b(tandaan|remember|i-remember)\b.*\b(rule|batas|dapat)\b/] },
-
-  // ── Overview ─────────────────────────────────────────────
   { intent: 'notes_overview',
     patterns: [/\b(overview|breakdown|summary|buod|ilang|how many)\b.*\bnotes\b/,
                /\bnotes\b.*\b(ilan|ilang|count|lahat|overview)\b/] },
-
-  // ── Clear memory ─────────────────────────────────────────
   { intent: 'memory_clear_all',
     patterns: [/\b(clear|burahin|tanggalin)\b.*\b(lahat|all)\b.*\b(memory|memorya)\b/,
                /\b(memory|memorya)\b.*\b(clear all|burahin lahat|tanggalin lahat)\b/] },
-
-  // ── Greeting / small talk ────────────────────────────────
   { intent: 'greeting',
     patterns: [/^(hoy|hey|hi|hello|kumusta|sup|uy|oi)[!?.,\s]*$/i,
                /^(kamusta|musta)[!?.,\s]*$/i] },
 ];
 
-/**
- * Detect the most likely intent from a message.
- * Returns { intent, confidence } or null.
- */
 function detectIntent(msg) {
   var lower = msg.toLowerCase().trim();
   for (var i = 0; i < INTENT_PATTERNS.length; i++) {
@@ -98,7 +68,6 @@ function detectIntent(msg) {
       }
     }
   }
-  // Fuzzy fallback
   if (/\bmemory\b/.test(lower) && /\b(ano|what|show|list)\b/.test(lower))
     return { intent: 'memory_view', confidence: 'medium' };
   if (/\bnotes\b/.test(lower) && /\b(scan|check|mali)\b/.test(lower))
@@ -106,10 +75,6 @@ function detectIntent(msg) {
   return null;
 }
 
-/**
- * Returns true if the message is vague enough that the AI
- * should decide what to do (not the JS direct handler).
- */
 function isVagueCleanRequest(lower) {
   return /\b(check|tingnan|tignan|linisin|clean|i-clean|mag-clean|suriin|i-check)\b/.test(lower)
       || /\b(kung meron|kung may|kung mayroon)\b/.test(lower)
@@ -212,8 +177,7 @@ async function cleanJunkMemoryEntries() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// PROACTIVE ANALYSIS — runs once on panel open
-// Scans notes for common issues and builds a suggestion list
+// PROACTIVE ANALYSIS
 // ─────────────────────────────────────────────────────────────
 function analyzeNotesProactively() {
   var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
@@ -226,12 +190,10 @@ function analyzeNotesProactively() {
     var cat        = String(n.category||'').toUpperCase();
     var raw        = String(n.rawNote||'').toLowerCase().trim();
 
-    // Bad title
     if (!n.title || ['untitled','walang laman','no title','n/a'].includes(titleLower))
       issues.push({ type:'bad_title', fbKey:n.fbKey, title:n.title||'(walang title)',
                     msg:'Walang maayos na title' });
 
-    // Possibly wrong category — OTHER when content suggests something specific
     else if (cat === 'OTHER' && raw.length > 30) {
       var hints = {
         IT:       /\b(code|javascript|python|api|server|database|css|html|programming|dev|software|bug|git|react|node)\b/,
@@ -250,7 +212,6 @@ function analyzeNotesProactively() {
     }
   });
 
-  // Check for near-duplicate titles
   var titleMap = {};
   myNotes.forEach(function(n){
     var words = String(n.title||'').toLowerCase().split(/\s+/).slice(0,4).join(' ');
@@ -261,7 +222,6 @@ function analyzeNotesProactively() {
   Object.keys(titleMap).forEach(function(words){
     if (titleMap[words].length >= 2) {
       titleMap[words].forEach(function(n){
-        // Don't double-add
         if (!issues.find(function(i){ return i.fbKey===n.fbKey && i.type==='duplicate_title'; }))
           issues.push({ type:'duplicate_title', fbKey:n.fbKey, title:n.title,
                         msg:'Posibleng duplicate ng ibang note' });
@@ -305,7 +265,7 @@ function buildProactiveMessage(issues) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SYSTEM PROMPT  — full context + session state injected
+// SYSTEM PROMPT
 // ─────────────────────────────────────────────────────────────
 function buildAIInstructorPrompt() {
   var myNotes = (window.allNotes || []).filter(function(n){ return isMyNote(n); });
@@ -335,7 +295,6 @@ function buildAIInstructorPrompt() {
     ? behaviorRules.map(function(r,i){ return (i+1)+'. '+r; }).join('\n')
     : '(wala)';
 
-  // Session context
   var sessionBlock = '';
   if (AI_SESSION.confirmedActions.length) {
     sessionBlock = '\nSESSION ACTIONS (ginawa na ngayong session):\n'
@@ -375,29 +334,48 @@ sessionBlock,
 'CORE RULES:',
 '1. NOTES ≠ MEMORY. fix_note/bulk_fix = NOTES. add/remove_memory = MEMORY.',
 '2. "tanggalin sa memory" → remove_memory. HINDI bulk_fix.',
-'3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST sa ibaba. ',
+'3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST sa ibaba.',
 '   HUWAG gumawa ng sariling fbKey. Huwag i-compute o i-guess. Kunin LITERAL mula sa listahan.',
 '4. Notes actions: kailangan ng confirm mula sa user bago i-execute.',
 '5. Memory actions: direkta, walang confirm.',
-'6. reOrganize:true — lagyan LANG kapag kailangan i-rewrite ang content/summary/organizedContent. Kung title or category lang ang babaguhin, WALA nang reOrganize (para hindi ma-overwrite ang ibang fields ng user).',
-'7. Huwag baguhin ang rawNote field — bawal yan.',
-'8. TONE: Makipag-chat lang ng natural, parang kaibigan. Huwag robotic. Huwag formal na "Natagpuan ko..." o "Ipapakita ko...".',
-'9. Halimbawa ng magandang tone: "Ay yung \"Kamo Nog Nog Bato\" note 😄 Mukhang random text lang yan ah. Ayusin ko? Title, category, at content niya." — tapos [ACTION].',
+'6. reOrganize:true — lagyan LANG kapag kailangan i-rewrite ang organizedContent/summary/keyPoints.',
+'   Kung title o category lang ang babaguhin, WALA nang reOrganize.',
+'7. rawNote — PWEDE palitan kung EXPLICITLY sinabi ng user na palitan ang content/notes text mismo.',
+'   Gamitin ang field "newRawNote":"bagong content" sa loob ng updates para dito.',
+'   Halimbawa: user says "palitan mo yung laman ng note na yan ng [bagong text]"',
+'   → updates: { "title":"...", "newRawNote":"bagong text na ito" }',
+'8. TONE: Makipag-chat lang ng natural, parang kaibigan. Huwag robotic.',
+'9. Halimbawa ng magandang tone: "Ay yung note 😄 Mukhang random text yan. Ayusin ko?" — tapos [ACTION].',
+'',
+'VERIFICATION REMINDER:',
+'• Ang executeAIAction() ay mag-veverify kung may ACTUAL na nagbago.',
+'• Kung walang magbabago, sasabihin niya ang problema. Huwag mag-assume na okay na.',
 '',
 'PROACTIVE:',
 '• Kung may obvious na mali sa notes → sabihin mo kahit hindi tinatanong.',
 '• Mag-suggest ng follow-up actions pagkatapos mag-execute.',
 '',
 'ACTION FORMATS:',
-'fix_note (title/category lang):  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW TITLE","category":"CAT"}} ← walang reOrganize',
-'fix_note (i-rewrite content):    {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT"},"reOrganize":true} ← may reOrganize:true ONLY kung content rewrite ang hiningi',
-'bulk_fix:          {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}],"reason":"...","reOrganize":true}',
-'add_memory:        {"type":"add_memory","data":{"key":"slug","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}',
-'update_memory:     {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","summary":"..."}}',
-'remove_memory:     {"type":"remove_memory","data":{"key":"EXACT_KEY"}}',
-'bulk_remove_memory:{"type":"bulk_remove_memory","keys":["key1","key2"]}',
-'clear_all_memory:  {"type":"clear_all_memory"}',
-'save_behavior_rule:{"type":"save_behavior_rule","data":{"key":"slug","title":"Short title","behaviorRule":"The exact rule"}}',
+'fix_note (title/category lang):',
+'  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW TITLE","category":"CAT"}}',
+'fix_note (palitan ang raw content):',
+'  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW","newRawNote":"bagong content"},"reOrganize":true}',
+'fix_note (i-rewrite organizedContent):',
+'  {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT"},"reOrganize":true}',
+'bulk_fix:',
+'  {"type":"bulk_fix","targets":[{"fbKey":"EXACT","updates":{"category":"CAT"}}],"reason":"...","reOrganize":true}',
+'add_memory:',
+'  {"type":"add_memory","data":{"key":"slug","title":"...","category":"CAT","summary":"...","categoryRule":"...","behaviorRule":"..."}}',
+'update_memory:',
+'  {"type":"update_memory","data":{"key":"EXACT_KEY","title":"...","summary":"..."}}',
+'remove_memory:',
+'  {"type":"remove_memory","data":{"key":"EXACT_KEY"}}',
+'bulk_remove_memory:',
+'  {"type":"bulk_remove_memory","keys":["key1","key2"]}',
+'clear_all_memory:',
+'  {"type":"clear_all_memory"}',
+'save_behavior_rule:',
+'  {"type":"save_behavior_rule","data":{"key":"slug","title":"Short title","behaviorRule":"The exact rule"}}',
 '',
 'TAG: [ACTION]{...}[/ACTION] — sa DULO ng message.',
 '',
@@ -413,9 +391,8 @@ memBlock,
   ].join('\n');
 }
 
-
 // ─────────────────────────────────────────────────────────────
-// RE-ORGANIZER PROMPT  — used when fixing note content
+// RE-ORGANIZER PROMPT
 // ─────────────────────────────────────────────────────────────
 function buildReOrgPrompt(forcedCategory) {
   var lines = [
@@ -433,7 +410,7 @@ function buildReOrgPrompt(forcedCategory) {
     '- title: max 60 chars, descriptive, based on actual content',
     '- summary: concise, 1-2 sentences only',
     '- keyPoints: array of strings, max 5 items',
-    '- DO NOT return rawNote — that field is never modified by the AI',
+    '- DO NOT return rawNote — that field is handled separately',
     forcedCategory ? '- REQUIRED: category MUST be "' + forcedCategory + '". Do not change it.' : '- Pick the most accurate category from the list',
     '',
     'Return ONLY the JSON object. No explanation. No markdown fences. No preamble.',
@@ -447,6 +424,7 @@ function buildReOrgPrompt(forcedCategory) {
 async function executeAIAction(actionObj) {
   var type = actionObj.type;
 
+  // ── save_behavior_rule ───────────────────────────────────
   if (type === 'save_behavior_rule') {
     var d = actionObj.data || {};
     if (!d.behaviorRule) return 'Missing behaviorRule.';
@@ -462,21 +440,43 @@ async function executeAIAction(actionObj) {
     } catch(e) { return 'Save failed: '+e.message; }
   }
 
+  // ── fix_note ─────────────────────────────────────────────
   if (type === 'fix_note') {
     var fbKey=actionObj.fbKey, updates=actionObj.updates, reOrganize=actionObj.reOrganize;
     if (!fbKey||!updates) return 'Missing fbKey or updates.';
+
     var n=window.allNotes.find(function(x){return x.fbKey===fbKey;});
-    if (!n) return 'Note not found (fbKey: '+fbKey+')';
-    if (!isMyNote(n)) return 'Hindi mo note ito: "'+n.title+'"';
+    if (!n) return '⚠️ Hindi mahanap ang note (fbKey: "'+fbKey+'"). Baka nagbago na ang fbKey? Try mo ulit i-scan ang notes.';
+    if (!isMyNote(n)) return '⚠️ Hindi mo note ito: "'+n.title+'"';
+
     if (updates.category) updates.category=updates.category.toUpperCase().replace(/\s+/g,'_');
-    var finalUpdates=Object.assign({},updates);
-    if (reOrganize===true&&(n.rawNote||n.organizedContent)) {
+
+    // Handle newRawNote — user explicitly wants to replace raw content
+    var newRawNote = undefined;
+    if (updates.newRawNote !== undefined) {
+      newRawNote = updates.newRawNote;
+      delete updates.newRawNote;
+    }
+
+    var finalUpdates = Object.assign({}, updates);
+
+    // If newRawNote provided, set it in finalUpdates
+    if (newRawNote !== undefined) {
+      finalUpdates.rawNote = newRawNote;
+    }
+
+    // reOrganize: rewrite organizedContent/summary/keyPoints via AI
+    if (reOrganize === true) {
       try {
-        var content=n.rawNote&&n.rawNote!=='[image]'?n.rawNote:n.organizedContent||n.title;
+        // Use newRawNote as base content if provided, else use existing rawNote
+        var contentToOrg = newRawNote !== undefined
+          ? newRawNote
+          : (n.rawNote && n.rawNote !== '[image]' ? n.rawNote : n.organizedContent || n.title);
+
         var res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
             {role:'system',content:buildReOrgPrompt(updates.category||'')},
-            {role:'user',content:content}
+            {role:'user',content:contentToOrg}
           ]})});
         var rdata=await res.json();
         if (!rdata.error) {
@@ -485,44 +485,75 @@ async function executeAIAction(actionObj) {
           var rp=JSON.parse(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw);
           function es(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
           function ea(v){return Array.isArray(v)?v.map(es).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-          finalUpdates={
-            title:    updates.title||es(rp.title)||n.title,
-            category: updates.category||es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
+          // Merge: explicit updates override AI-generated ones
+          finalUpdates = Object.assign({
+            title:    es(rp.title)||n.title,
+            category: es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
             summary:  es(rp.summary),
             keyPoints:ea(rp.keyPoints),
             organizedContent: es(rp.organizedContent)
-          };
-          if (updates.isPublic!==undefined) finalUpdates.isPublic=updates.isPublic;
+          }, finalUpdates);
+          // Explicit title/category always win
+          if (updates.title) finalUpdates.title = updates.title;
+          if (updates.category) finalUpdates.category = updates.category;
+          if (updates.isPublic !== undefined) finalUpdates.isPublic = updates.isPublic;
         }
-      } catch(re){console.warn('Re-org failed:',re.message);}
+      } catch(re){ console.warn('Re-org failed:', re.message); }
     }
+
+    // ── VERIFY: check what actually changed ───────────────
+    var changed = Object.keys(finalUpdates).filter(function(key) {
+      return JSON.stringify(n[key]) !== JSON.stringify(finalUpdates[key]);
+    });
+
+    if (!changed.length) {
+      return '⚠️ Walang napalitan sa note na "'+n.title+'" — pareho pa rin ang lahat ng values.\n\nPwede mo bang ilarawan nang mas specific kung ano ang gusto mong palitan? Hal: "palitan mo yung laman ng note ng [bagong text]"';
+    }
+
     try {
       if (window._db&&window._update&&window._ref) {
-        await window._update(window._ref(window._db,'notes/'+fbKey),finalUpdates);
+        await window._update(window._ref(window._db,'notes/'+fbKey), finalUpdates);
         await window.updateAIMemory(Object.assign({},n,finalUpdates));
       }
-      // Always update local copy so AI sees fresh data on next message
-      Object.assign(n,finalUpdates);
+      Object.assign(n, finalUpdates);
       renderApp();
       AI_SESSION.confirmedActions.push('Fixed note: "'+n.title+'"');
       var newTitle = finalUpdates.title || n.title;
-      return 'Done na! ✅ "'+newTitle+'" na-update na. Tingnan mo na 👀';
-    } catch(e){return 'Fix failed: '+e.message;}
+      var changedSummary = changed.map(function(k){
+        var val = String(finalUpdates[k]).slice(0,50);
+        return '  • ' + k + ': "' + val + (String(finalUpdates[k]).length > 50 ? '...' : '') + '"';
+      }).join('\n');
+      return 'Done na! ✅ Na-update ang "'+newTitle+'":\n'+changedSummary+'\n\nI-refresh ang note para makita ang pagbabago 👀';
+    } catch(e){ return '⚠️ Firebase update failed: '+e.message+'\n\nTry mo i-reload ang page at ulit.'; }
   }
 
+  // ── bulk_fix ─────────────────────────────────────────────
   if (type === 'bulk_fix') {
     var targets=actionObj.targets,reason=actionObj.reason,reOrg=actionObj.reOrganize;
     if (!targets||!targets.length) return 'Walang targets.';
-    var results=[];
+    var results=[], skipped=[];
     for (var ti=0;ti<targets.length;ti++) {
       var tgt=targets[ti],tfbKey=tgt.fbKey,tupdates=tgt.updates;
       var tn=window.allNotes.find(function(x){return x.fbKey===tfbKey;});
-      if (!tn||!isMyNote(tn)){results.push('Skip: '+tfbKey);continue;}
+      if (!tn||!isMyNote(tn)){skipped.push(tfbKey+' (not found/not mine)');continue;}
+
       if (tupdates.category) tupdates.category=tupdates.category.toUpperCase().replace(/\s+/g,'_');
-      var tFinal=Object.assign({},tupdates);
-      if (reOrg===true&&(tn.rawNote||tn.organizedContent)) {
+
+      // Handle newRawNote in bulk
+      var tNewRaw = undefined;
+      if (tupdates.newRawNote !== undefined) {
+        tNewRaw = tupdates.newRawNote;
+        delete tupdates.newRawNote;
+      }
+
+      var tFinal = Object.assign({}, tupdates);
+      if (tNewRaw !== undefined) tFinal.rawNote = tNewRaw;
+
+      if (reOrg===true) {
         try {
-          var tc2=tn.rawNote&&tn.rawNote!=='[image]'?tn.rawNote:tn.organizedContent||tn.title;
+          var tc2 = tNewRaw !== undefined
+            ? tNewRaw
+            : (tn.rawNote && tn.rawNote !== '[image]' ? tn.rawNote : tn.organizedContent || tn.title);
           var tres=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
             body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
               {role:'system',content:buildReOrgPrompt(tupdates.category||'')},
@@ -535,31 +566,45 @@ async function executeAIAction(actionObj) {
             var tp2=JSON.parse(tsi2!==-1&&tei2!==-1?traw.slice(tsi2,tei2+1):traw);
             function tes(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
             function tea(v){return Array.isArray(v)?v.map(tes).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-            tFinal={
+            tFinal = Object.assign({
               category: tupdates.category,
               title:    tupdates.title||tes(tp2.title)||tn.title,
               summary:  tes(tp2.summary),
               keyPoints:tea(tp2.keyPoints),
               organizedContent: tes(tp2.organizedContent)
-            };
+            }, tFinal);
+            if (tupdates.title) tFinal.title = tupdates.title;
+            if (tupdates.category) tFinal.category = tupdates.category;
           }
         } catch(re2){console.warn('Bulk re-org fail:',tn.title,re2.message);}
       }
+
+      // Verify something changed
+      var tChanged = Object.keys(tFinal).filter(function(key){
+        return JSON.stringify(tn[key]) !== JSON.stringify(tFinal[key]);
+      });
+      if (!tChanged.length) { skipped.push('"'+tn.title+'" (walang pagbabago)'); continue; }
+
       try {
         if (window._db&&window._update&&window._ref) {
           await window._update(window._ref(window._db,'notes/'+tfbKey),tFinal);
           await window.updateAIMemory(Object.assign({},tn,tFinal));
         }
-        // Always update local copy
         Object.assign(tn,tFinal);
         results.push('"'+(tFinal.title||tn.title)+'" → ['+(tFinal.category||tn.category)+']');
-      } catch(e2){results.push('"'+tn.title+'": '+e2.message);}
+      } catch(e2){results.push('"'+tn.title+'": ⚠️ '+e2.message);}
     }
     renderApp();
     AI_SESSION.confirmedActions.push('Bulk fixed '+results.length+' notes');
-    return 'Tapos na! ✅ '+results.length+' notes na-fix:\n'+results.map(function(r){return '• '+r;}).join('\n')+(reason?'\n\n'+reason:'')+'\n\nTingnan mo na sa notes list 😊';
+    var out = '';
+    if (results.length) out += 'Tapos na! ✅ '+results.length+' notes na-fix:\n'+results.map(function(r){return'• '+r;}).join('\n');
+    if (skipped.length) out += '\n\n⚠️ Skipped ('+skipped.length+'):\n'+skipped.map(function(r){return'• '+r;}).join('\n');
+    if (reason) out += '\n\n'+reason;
+    out += '\n\nTingnan mo na sa notes list 😊';
+    return out;
   }
 
+  // ── add_memory / update_memory ───────────────────────────
   if (type==='add_memory'||type==='update_memory') {
     var d2=actionObj.data||{};
     if (!d2.key&&!d2.title) return 'Need key or title.';
@@ -580,6 +625,7 @@ async function executeAIAction(actionObj) {
     } catch(e){return 'Memory save failed: '+e.message;}
   }
 
+  // ── remove_memory ────────────────────────────────────────
   if (type==='remove_memory') {
     var rk=actionObj.data&&actionObj.data.key;
     var rm=Object.keys(aiMemory).find(function(k){
@@ -596,6 +642,7 @@ async function executeAIAction(actionObj) {
     } catch(e){return 'Failed: '+e.message;}
   }
 
+  // ── bulk_remove_memory ───────────────────────────────────
   if (type==='bulk_remove_memory') {
     var bkeys=actionObj.keys||[];
     if (!bkeys.length) return 'Walang keys.';
@@ -619,6 +666,7 @@ async function executeAIAction(actionObj) {
           +(bfailed.length?'\nHindi mahanap:\n'+bfailed.map(function(f){return'- '+f;}).join('\n'):'');
   }
 
+  // ── clear_all_memory ─────────────────────────────────────
   if (type==='clear_all_memory') {
     try {
       if (window._db&&window._update&&window._ref) {
@@ -638,7 +686,6 @@ async function executeAIAction(actionObj) {
 // ─────────────────────────────────────────────────────────────
 // DIRECT HANDLERS
 // ─────────────────────────────────────────────────────────────
-
 async function tryDirectMemoryDelete(msg) {
   var lower = msg.toLowerCase();
   if (!/tanggal|delete|remove|bura|alisin|i-delete|itanggal/.test(lower)) return false;
@@ -723,7 +770,6 @@ async function tryDirectBehaviorSave(msg) {
   }
 }
 
-// Handle "oo/sige" responses to the proactive suggestion
 var _pendingProactiveIssues = null;
 
 async function tryProactiveConfirm(msg) {
@@ -777,14 +823,12 @@ function patchChatInputArea() {
   var wrap = document.querySelector('.ai-chat-input-wrap');
   if (!wrap) return;
 
-  // Hidden file input
   var fi = document.createElement('input');
   fi.type='file'; fi.accept='image/*'; fi.id='ai-chat-fi';
   fi.style.display='none';
   fi.addEventListener('change', function(e){ var f=e.target.files[0]; if(f) loadChatImg(f); fi.value=''; });
   wrap.parentNode.insertBefore(fi, wrap);
 
-  // Image preview strip (shown above input wrap when image attached)
   var strip = document.createElement('div');
   strip.id='ai-chat-img-strip';
   strip.style.cssText='display:none;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);background:var(--surface2);flex-shrink:0;';
@@ -808,7 +852,6 @@ function patchChatInputArea() {
     }
   });
 
-  // Attach button (+ image icon) — insert before the textarea
   var btn = document.createElement('button');
   btn.id='ai-chat-img-btn';
   btn.style.cssText='width:34px;height:34px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-m);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.18s;';
@@ -819,7 +862,6 @@ function patchChatInputArea() {
   btn.addEventListener('click', function(){ document.getElementById('ai-chat-fi').click(); });
   wrap.insertBefore(btn, wrap.firstChild);
 
-  // Paste image into chat
   document.addEventListener('paste', function(e){
     if (!aiChatOpen) return;
     for (var i=0; i<(e.clipboardData&&e.clipboardData.items||[]).length; i++){
@@ -865,7 +907,6 @@ async function sendAIChat() {
   var hasImg = !!_chatImgB64;
   if (!msg && !hasImg) return;
   input.value=''; input.style.height='';
-  // Show user message (with image preview if attached)
   if (hasImg) {
     appendChatMsgWithImg('user', msg||'🖼️ [image]', _chatImgB64);
   } else {
@@ -912,7 +953,7 @@ async function sendAIChat() {
     scrollChatToBottom(); return;
   }
 
-  // ── 3. Intent detection — fast-path routing ──────────────
+  // ── 3. Intent detection ──────────────────────────────────
   var intentResult = detectIntent(msg);
 
   if (intentResult && intentResult.intent === 'memory_view') {
@@ -938,17 +979,14 @@ async function sendAIChat() {
     scrollChatToBottom(); return;
   }
 
-  // ── 5. Full AI call — with augmented context ─────────────
-  // Inject detected intent as a hint to the AI
+  // ── 5. Full AI call ──────────────────────────────────────
   var augmentedMsg = intentResult
     ? msg + '\n[DETECTED INTENT: '+intentResult.intent+']'
     : msg;
 
-  // Capture and clear image before async work
   var currentImgB64 = _chatImgB64;
   clearChatImg();
 
-  // Build history entry — multimodal if image present
   var historyUserContent = currentImgB64
     ? [ {type:'text', text:augmentedMsg||'Analyze this image in context of my notes.'},
         {type:'image_url', image_url:{url:'data:image/jpeg;base64,'+currentImgB64}} ]
@@ -958,15 +996,12 @@ async function sendAIChat() {
   var tid=appendChatTyping();
   setSendBtn(true);
 
-  // Use longer history window for better context
-  // For vision: only last message can have image (API limitation), rest are text
   var historyForAI = AI_CHAT_HISTORY.slice(-20).slice();
   var lastIdx = historyForAI.length - 1;
   historyForAI[lastIdx] = {role:'user', content: historyUserContent};
 
   var useVision = !!currentImgB64;
   var apiModel = useVision ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
-  // Vision model doesn't support system role — prepend as first user message
   var apiMessages = useVision
     ? [{role:'user', content:[{type:'text',text:buildAIInstructorPrompt()+'\n\nNow respond to the user:'}]}].concat(historyForAI)
     : [{role:'system', content:buildAIInstructorPrompt()}].concat(historyForAI);
@@ -974,10 +1009,7 @@ async function sendAIChat() {
   try {
     var res=await fetch(GROQ_URL,{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model: apiModel, max_tokens:1200,
-        messages: apiMessages
-      })
+      body:JSON.stringify({ model: apiModel, max_tokens:1200, messages: apiMessages })
     });
     var data=await res.json();
     if (data.error) throw new Error(data.error.message||'API error');
@@ -1066,7 +1098,6 @@ function appendChatMsgWithImg(role, text, imgB64){
   var feed=document.getElementById('ai-chat-feed'); if(!feed) return;
   var div=document.createElement('div'); div.className='aicm aicm-'+role;
   var bubble=document.createElement('div'); bubble.className='aicm-bubble';
-  // Image thumbnail
   var imgWrap=document.createElement('div');
   imgWrap.style.cssText='margin-bottom:6px;border-radius:10px;overflow:hidden;max-width:180px;border:1px solid rgba(255,255,255,0.1);cursor:zoom-in';
   var img=document.createElement('img');
@@ -1077,7 +1108,6 @@ function appendChatMsgWithImg(role, text, imgB64){
     if(lb&&lbi){lbi.src=img.src;lb.classList.add('on');}
   });
   imgWrap.appendChild(img); bubble.appendChild(imgWrap);
-  // Text
   if(text&&text!=='🖼️ [image]'){
     var txt=document.createElement('div');
     txt.innerHTML=escChat(text).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
@@ -1085,7 +1115,6 @@ function appendChatMsgWithImg(role, text, imgB64){
   }
   div.appendChild(bubble); feed.appendChild(div); scrollChatToBottom();
 }
-
 function appendChatTyping(){
   var id='ty-'+(++_typingCounter);
   var feed=document.getElementById('ai-chat-feed'); if(!feed) return id;
@@ -1101,7 +1130,7 @@ function scrollChatToBottom(){
 function escChat(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // ─────────────────────────────────────────────────────────────
-// AI MODALS  — Memory, Notes Overview
+// AI MODALS
 // ─────────────────────────────────────────────────────────────
 function injectAIModalStyles(){
   if(document.getElementById('ai-modal-styles')) return;
@@ -1167,14 +1196,12 @@ function openAIModal(titleHtml, renderFn, tabs){
 
   var modal=document.createElement('div'); modal.className='ai-modal';
 
-  // Head
   var head=document.createElement('div'); head.className='ai-modal-head';
   var titleEl=document.createElement('div'); titleEl.className='ai-modal-title'; titleEl.innerHTML=titleHtml;
   var closeBtn=document.createElement('button'); closeBtn.className='ai-modal-close'; closeBtn.innerHTML='&#x2715;';
   closeBtn.addEventListener('click', closeAIModal);
   head.appendChild(titleEl); head.appendChild(closeBtn); modal.appendChild(head);
 
-  // Optional tabs
   if(tabs&&tabs.length){
     var tabBar=document.createElement('div'); tabBar.className='ai-modal-tabs';
     tabs.forEach(function(t,i){
@@ -1191,7 +1218,6 @@ function openAIModal(titleHtml, renderFn, tabs){
     modal.appendChild(tabBar);
   }
 
-  // Body
   var body=document.createElement('div'); body.className='ai-modal-body';
   renderFn(body);
   modal.appendChild(body);
@@ -1199,7 +1225,6 @@ function openAIModal(titleHtml, renderFn, tabs){
   ov.appendChild(modal);
   document.body.appendChild(ov);
 
-  // ESC to close
   var escHandler=function(e){
     if(e.key==='Escape'){ closeAIModal(); document.removeEventListener('keydown',escHandler); }
   };
@@ -1353,8 +1378,6 @@ function showOverviewModal(){
   openAIModal('&#128202; Notes Overview', tabs[0].render, tabs);
 }
 
-
-
 // ─────────────────────────────────────────────────────────────
 // QUICK PROMPTS
 // ─────────────────────────────────────────────────────────────
@@ -1487,7 +1510,6 @@ function openAIChat(){
         'Tanungin mo ako ng kahit ano — kahit "ayusin mo notes ko" o "linis memory" ay gets ko na 😎'
       );
 
-      // Proactive analysis after short delay
       setTimeout(function(){
         if (myNc > 0) {
           var issues = analyzeNotesProactively();
@@ -1525,24 +1547,20 @@ function toggleAIChat(){if(aiChatOpen)closeAIChat();else openAIChat();}
 // INIT
 // ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',function(){
-  // Patch note view modal to show organizedContent (not just rawNote) in Notes tab
   setTimeout(function patchOpenView(){
     if(typeof window.openView==='function' && !window._openViewPatched){
       var _origOpenView = window.openView;
       window.openView = function(idOrFbKey){
         _origOpenView.apply(this, arguments);
-        // After modal opens, patch the Notes tab content
         setTimeout(function(){
           var mvBody = document.getElementById('mv-body');
           if(!mvBody) return;
           var note = (window.allNotes||[]).find(function(n){ return n.fbKey===idOrFbKey||String(n.id)===String(idOrFbKey); });
           if(!note) return;
-          // Only patch if organizedContent exists and is different from rawNote
           if(!note.organizedContent || note.organizedContent===note.rawNote) return;
           var boxes = mvBody.querySelectorAll('.vs-box');
           if(boxes.length > 0){
             var firstBox = boxes[0];
-            // Check if it's showing raw content (Notes tab)
             var rawText = String(note.rawNote||'').trim();
             var orgText = String(note.organizedContent||'').trim();
             if(firstBox.textContent.trim()===rawText && orgText && orgText!==rawText){
