@@ -818,6 +818,13 @@ async function sendAIChat() {
     scrollChatToBottom(); return;
   }
 
+  if (intentResult && intentResult.intent === 'notes_overview') {
+    showOverviewModal();
+    AI_CHAT_HISTORY.push({role:'user',content:msg});
+    AI_CHAT_HISTORY.push({role:'assistant',content:'(notes overview)'});
+    scrollChatToBottom(); return;
+  }
+
   // ── 4. Direct JS handlers ────────────────────────────────
   var didDelete   = await tryDirectMemoryDelete(msg);
   var didBehavior = !didDelete && await tryDirectBehaviorSave(msg);
@@ -948,53 +955,259 @@ function scrollChatToBottom(){
 function escChat(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // ─────────────────────────────────────────────────────────────
-// SHOW / EDIT MEMORY
+// AI MODALS  — Memory, Notes Overview
 // ─────────────────────────────────────────────────────────────
+function injectAIModalStyles(){
+  if(document.getElementById('ai-modal-styles')) return;
+  var s=document.createElement('style'); s.id='ai-modal-styles';
+  s.textContent=`
+.ai-modal-overlay{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.82);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px;animation:aimo-in 0.2s ease}
+@keyframes aimo-in{from{opacity:0}to{opacity:1}}
+.ai-modal{background:var(--surface);border:1px solid var(--border-h);border-radius:20px;width:100%;max-width:640px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 28px 90px rgba(0,0,0,0.65);animation:aimo-slide 0.25s cubic-bezier(0.34,1.56,0.64,1)}
+@keyframes aimo-slide{from{opacity:0;transform:translateY(20px) scale(0.97)}to{opacity:1;transform:none}}
+.ai-modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.ai-modal-title{font-size:15px;font-weight:800;color:var(--text-b);display:flex;align-items:center;gap:8px}
+.ai-modal-close{width:30px;height:30px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--text-m);transition:all 0.2s}
+.ai-modal-close:hover{border-color:var(--red);color:var(--red)}
+.ai-modal-tabs{display:flex;gap:0;padding:0 20px;border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.ai-modal-tabs::-webkit-scrollbar{display:none}
+.ai-modal-tab{padding:10px 14px;font-size:12px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;color:var(--text-m);background:none;border:none;border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap;flex-shrink:0}
+.ai-modal-tab.active{color:var(--a2);border-bottom-color:var(--a2)}
+.ai-modal-tab:hover:not(.active){color:var(--text-b)}
+.ai-modal-body{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
+.ai-modal-body::-webkit-scrollbar{width:4px}
+.ai-modal-body::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
+.ai-mem-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;display:flex;align-items:flex-start;gap:12px;transition:border-color 0.2s}
+.ai-mem-card:hover{border-color:var(--border-h)}
+.ai-mem-card-ico{font-size:18px;flex-shrink:0;margin-top:1px}
+.ai-mem-card-body{flex:1;min-width:0}
+.ai-mem-card-title{font-size:13px;font-weight:700;color:var(--text-b);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ai-mem-card-sub{font-size:11.5px;color:var(--text);line-height:1.5}
+.ai-mem-card-key{font-size:10px;color:var(--text-m);font-family:'JetBrains Mono',monospace;margin-top:4px}
+.ai-mem-card-del{width:28px;height:28px;background:transparent;border:1px solid transparent;border-radius:7px;color:var(--text-m);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;transition:all 0.2s}
+.ai-mem-card-del:hover{border-color:rgba(248,113,113,0.4);color:var(--red);background:rgba(248,113,113,0.06)}
+.ai-sec-label{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;padding:4px 0 2px}
+.ai-empty-state{text-align:center;padding:32px 20px;color:var(--text-m);font-size:13px}
+.ai-empty-state .ico{font-size:32px;display:block;margin-bottom:8px;opacity:0.3}
+.ai-overview-row{display:flex;align-items:center;gap:12px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 15px}
+.ai-overview-bar-wrap{flex:1;height:6px;background:var(--surface3);border-radius:3px;overflow:hidden}
+.ai-overview-bar{height:100%;border-radius:3px;transition:width 0.6s cubic-bezier(0.4,0,0.2,1)}
+.ai-overview-count{font-size:12px;font-weight:700;color:var(--text-b);font-family:'JetBrains Mono',monospace;flex-shrink:0;min-width:28px;text-align:right}
+.ai-overview-cat{font-size:12px;font-weight:700;min-width:90px;flex-shrink:0}
+.ai-notes-list-item{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;cursor:pointer;transition:all 0.18s}
+.ai-notes-list-item:hover{border-color:var(--border-h);transform:translateX(3px)}
+.ai-notes-list-item-title{font-size:13px;font-weight:700;color:var(--text-b);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ai-notes-list-item-meta{font-size:11px;color:var(--text-m);display:flex;gap:8px}
+.ai-search-wrap{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:7px 11px;margin-bottom:4px;transition:all 0.2s}
+.ai-search-wrap:focus-within{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
+.ai-search-input{background:none;border:none;outline:none;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;width:100%}
+.ai-search-input::placeholder{color:var(--text-m)}
+`;
+  document.head.appendChild(s);
+}
+
+function closeAIModal(){
+  var ov=document.getElementById('ai-modal-overlay');
+  if(ov) ov.remove();
+}
+
+function openAIModal(titleHtml, renderFn, tabs){
+  injectAIModalStyles();
+  closeAIModal();
+
+  var ov=document.createElement('div');
+  ov.className='ai-modal-overlay'; ov.id='ai-modal-overlay';
+  ov.addEventListener('click',function(e){ if(e.target===ov) closeAIModal(); });
+
+  var modal=document.createElement('div'); modal.className='ai-modal';
+
+  // Head
+  var head=document.createElement('div'); head.className='ai-modal-head';
+  var titleEl=document.createElement('div'); titleEl.className='ai-modal-title'; titleEl.innerHTML=titleHtml;
+  var closeBtn=document.createElement('button'); closeBtn.className='ai-modal-close'; closeBtn.innerHTML='&#x2715;';
+  closeBtn.addEventListener('click', closeAIModal);
+  head.appendChild(titleEl); head.appendChild(closeBtn); modal.appendChild(head);
+
+  // Optional tabs
+  if(tabs&&tabs.length){
+    var tabBar=document.createElement('div'); tabBar.className='ai-modal-tabs';
+    tabs.forEach(function(t,i){
+      var tb=document.createElement('button'); tb.className='ai-modal-tab'+(i===0?' active':'');
+      tb.textContent=t.label;
+      tb.addEventListener('click',function(){
+        tabBar.querySelectorAll('.ai-modal-tab').forEach(function(b){b.classList.remove('active');});
+        tb.classList.add('active');
+        body.innerHTML='';
+        t.render(body);
+      });
+      tabBar.appendChild(tb);
+    });
+    modal.appendChild(tabBar);
+  }
+
+  // Body
+  var body=document.createElement('div'); body.className='ai-modal-body';
+  renderFn(body);
+  modal.appendChild(body);
+
+  ov.appendChild(modal);
+  document.body.appendChild(ov);
+
+  // ESC to close
+  var escHandler=function(e){
+    if(e.key==='Escape'){ closeAIModal(); document.removeEventListener('keydown',escHandler); }
+  };
+  document.addEventListener('keydown',escHandler);
+}
+
+// ── Show Memory Modal ────────────────────────────────────────
 function showMemoryDirect(){
   var entries=Object.entries(aiMemory||{});
-  if (!entries.length){
-    appendChatMsg('ai','AI Memory ay EMPTY.\n\nMag-type ng instruction para mag-save ng behavior rule.'); return;
+  if(!entries.length){
+    appendChatMsg('ai','AI Memory ay EMPTY.\n\nSabihin mo lang ang isang instruction at itatanda ko, hal: "huwag mag-save ng testing notes".');
+    return;
   }
+
   var behaviors=entries.filter(function(e){return e[1].category==='BEHAVIOR'||e[1].behaviorRule;});
-  var rules    =entries.filter(function(e){return e[1].categoryRule;});
+  var rules    =entries.filter(function(e){return e[1].categoryRule&&!e[1].behaviorRule;});
   var topics   =entries.filter(function(e){return !e[1].behaviorRule&&!e[1].categoryRule&&e[1].category!=='BEHAVIOR';});
 
-  var msg='🧠 AI Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+'\n'+'═'.repeat(36)+'\n\n';
-  if (behaviors.length){
-    msg+='🔒 BEHAVIOR RULES ('+behaviors.length+'):\n';
-    behaviors.forEach(function(kv){
-      msg+='  • '+kv[1].title+'\n    "'+( kv[1].behaviorRule||kv[1].summary)+'"\n    key: '+kv[0]+'\n\n';
+  function makeCard(kv, ico, sub){
+    var card=document.createElement('div'); card.className='ai-mem-card';
+    var icoEl=document.createElement('div'); icoEl.className='ai-mem-card-ico'; icoEl.textContent=ico;
+    var bodyEl=document.createElement('div'); bodyEl.className='ai-mem-card-body';
+    var titleEl=document.createElement('div'); titleEl.className='ai-mem-card-title'; titleEl.textContent=kv[1].title||kv[0];
+    var subEl=document.createElement('div'); subEl.className='ai-mem-card-sub'; subEl.textContent=sub;
+    var keyEl=document.createElement('div'); keyEl.className='ai-mem-card-key'; keyEl.textContent='key: '+kv[0];
+    bodyEl.appendChild(titleEl); bodyEl.appendChild(subEl); bodyEl.appendChild(keyEl);
+    card.appendChild(icoEl); card.appendChild(bodyEl);
+    var del=document.createElement('button'); del.className='ai-mem-card-del'; del.innerHTML='&#128465;';
+    del.title='Delete';
+    del.addEventListener('click',function(){
+      if(!confirm('Delete "'+( kv[1].title||kv[0])+'"?')) return;
+      executeAIAction({type:'remove_memory',data:{key:kv[0]}}).then(function(r){
+        appendChatMsg('ai',r);
+        closeAIModal();
+        setTimeout(showMemoryDirect,150);
+      });
     });
+    card.appendChild(del);
+    return card;
   }
-  if (rules.length){
-    msg+='📋 CATEGORY RULES ('+rules.length+'):\n';
-    rules.forEach(function(kv){
-      msg+='  • ['+kv[1].category+'] '+kv[1].title+'\n    "'+kv[1].categoryRule+'"\n    key: '+kv[0]+'\n\n';
-    });
+
+  function renderMemory(body){
+    if(behaviors.length){
+      var lbl=document.createElement('div'); lbl.className='ai-sec-label'; lbl.textContent='BEHAVIOR RULES ('+behaviors.length+')';
+      body.appendChild(lbl);
+      behaviors.forEach(function(kv){ body.appendChild(makeCard(kv,'🔒',kv[1].behaviorRule||kv[1].summary||'')); });
+    }
+    if(rules.length){
+      var lbl2=document.createElement('div'); lbl2.className='ai-sec-label'; lbl2.textContent='CATEGORY RULES ('+rules.length+')';
+      body.appendChild(lbl2);
+      rules.forEach(function(kv){ body.appendChild(makeCard(kv,'📋',kv[1].categoryRule||'')); });
+    }
+    if(topics.length){
+      var lbl3=document.createElement('div'); lbl3.className='ai-sec-label'; lbl3.textContent='LEARNED TOPICS ('+topics.length+')';
+      body.appendChild(lbl3);
+      topics.forEach(function(kv){
+        var s=String(kv[1].summary||'').slice(0,90)+(String(kv[1].summary||'').length>90?'...':'');
+        body.appendChild(makeCard(kv,'['+kv[1].category+']',s));
+      });
+    }
   }
-  if (topics.length){
-    msg+='💡 LEARNED TOPICS ('+topics.length+'):\n';
-    topics.forEach(function(kv){
-      var s=String(kv[1].summary||'').slice(0,80)+(String(kv[1].summary||'').length>80?'...':'');
-      msg+='  • ['+kv[1].category+'] '+kv[1].title+'\n    '+s+'\n    key: '+kv[0]+'\n\n';
-    });
-  }
-  msg+='💬 Para mag-delete: "tanggalin sa memory [key o title]"';
-  appendChatMsg('ai',msg);
+
+  openAIModal(
+    '\uD83E\uDDE0 AI Memory \u00A0<span style="font-size:11px;font-weight:600;color:var(--text-m);background:var(--ag);padding:2px 8px;border-radius:10px;">'+entries.length+' entries</span>',
+    renderMemory
+  );
 }
 
-function editMemoryDirect(){
-  var entries=Object.entries(aiMemory||{});
-  if (!entries.length){appendChatMsg('ai','Walang memory entries pa.');return;}
-  var msg='✏️ Edit Memory — '+entries.length+' entr'+(entries.length!==1?'ies':'y')+':\n\n';
-  entries.forEach(function(kv,i){
-    var extra=kv[1].categoryRule?'\n    Rule: "'+kv[1].categoryRule+'"'
-             :kv[1].behaviorRule?'\n    Behavior: "'+kv[1].behaviorRule+'"':'';
-    msg+=(i+1)+'. ['+kv[1].category+'] '+kv[1].title+extra+'\n    key: '+kv[0]+'\n\n';
+function editMemoryDirect(){ showMemoryDirect(); }
+
+// ── Notes Overview Modal ─────────────────────────────────────
+function showOverviewModal(){
+  var myNotes=(window.allNotes||[]).filter(function(n){return isMyNote(n);});
+  if(!myNotes.length){ appendChatMsg('ai','Wala ka pang notes!'); return; }
+
+  var catColors={IT:'#3b82f6',STUDY:'#22d3ee',FREELANCE:'#fbbf24',CRYPTO:'#fb923c',PERSONAL:'#818cf8',OTHER:'#94a3b8'};
+  function getCatColor(c){ return catColors[c]||'#60a5fa'; }
+
+  function renderOverview(body){
+    var catMap={};
+    myNotes.forEach(function(n){ catMap[n.category]=(catMap[n.category]||0)+1; });
+    var cats=Object.entries(catMap).sort(function(a,b){return b[1]-a[1];});
+    var max=cats[0][1];
+
+    var lbl=document.createElement('div'); lbl.className='ai-sec-label'; lbl.textContent='PER CATEGORY';
+    body.appendChild(lbl);
+
+    cats.forEach(function(kv){
+      var row=document.createElement('div'); row.className='ai-overview-row';
+      var catEl=document.createElement('div'); catEl.className='ai-overview-cat';
+      catEl.style.cssText='font-size:12px;font-weight:700;color:'+getCatColor(kv[0]);
+      catEl.textContent=(typeof getCatEmoji==='function'?getCatEmoji(kv[0]):'')+' '+kv[0];
+      var barWrap=document.createElement('div'); barWrap.className='ai-overview-bar-wrap';
+      var bar=document.createElement('div'); bar.className='ai-overview-bar';
+      bar.style.cssText='width:'+(kv[1]/max*100)+'%;background:'+getCatColor(kv[0]);
+      barWrap.appendChild(bar);
+      var cnt=document.createElement('div'); cnt.className='ai-overview-count'; cnt.textContent=kv[1];
+      row.appendChild(catEl); row.appendChild(barWrap); row.appendChild(cnt);
+      body.appendChild(row);
+    });
+
+    var statsRow=document.createElement('div'); statsRow.style.cssText='display:flex;gap:8px;margin-top:4px';
+    var pub=myNotes.filter(function(n){return n.isPublic===true;}).length;
+    [[myNotes.length,'📝','Total','var(--a2)'],[pub,'🌐','Public','var(--cyan)'],[myNotes.length-pub,'🔒','Private','var(--purple)']].forEach(function(s){
+      var box=document.createElement('div');
+      box.style.cssText='flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:center';
+      box.innerHTML='<div style="font-size:18px">'+s[1]+'</div><div style="font-size:18px;font-weight:900;color:'+s[3]+'">'+s[0]+'</div><div style="font-size:10px;color:var(--text-m)">'+s[2]+'</div>';
+      statsRow.appendChild(box);
+    });
+    body.appendChild(statsRow);
+  }
+
+  function renderNotesList(body, filterCat){
+    var filtered=filterCat?myNotes.filter(function(n){return n.category===filterCat;}):myNotes;
+    var sw=document.createElement('div'); sw.className='ai-search-wrap';
+    sw.innerHTML='<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>';
+    var si=document.createElement('input'); si.className='ai-search-input'; si.placeholder='Search notes...';
+    sw.appendChild(si); body.appendChild(sw);
+    var listWrap=document.createElement('div'); listWrap.style.cssText='display:flex;flex-direction:column;gap:6px';
+    body.appendChild(listWrap);
+    function renderList(notes){
+      listWrap.innerHTML='';
+      if(!notes.length){ listWrap.innerHTML='<div class="ai-empty-state"><span class="ico">&#128269;</span>Walang nahanap</div>'; return; }
+      notes.forEach(function(n){
+        var item=document.createElement('div'); item.className='ai-notes-list-item';
+        var titleStr=String(n.title||'Untitled').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        item.innerHTML='<div class="ai-notes-list-item-title">'+titleStr+'</div>'
+          +'<div class="ai-notes-list-item-meta"><span style="color:'+getCatColor(n.category)+'">'+n.category+'</span>'
+          +'<span>'+(n.isPublic?'🌐':'🔒')+'</span><span>'+(n.date||'')+'</span></div>';
+        item.addEventListener('click',function(){ closeAIModal(); if(typeof openView==='function') openView(n.fbKey||n.id); });
+        listWrap.appendChild(item);
+      });
+    }
+    renderList(filtered);
+    si.addEventListener('input',function(){
+      var q=si.value.toLowerCase();
+      renderList(q?filtered.filter(function(n){return (n.title+n.summary+n.category).toLowerCase().includes(q);}):filtered);
+    });
+  }
+
+  var catMap2={};
+  myNotes.forEach(function(n){ catMap2[n.category]=(catMap2[n.category]||0)+1; });
+  var tabs=[
+    {label:'📊 Overview', render:renderOverview},
+    {label:'📝 All ('+myNotes.length+')', render:function(b){renderNotesList(b,null);}},
+  ];
+  Object.keys(catMap2).sort().forEach(function(c){
+    tabs.push({label:(typeof getCatEmoji==='function'?getCatEmoji(c):'')+' '+c+' ('+catMap2[c]+')', render:function(cc){ return function(b){renderNotesList(b,cc);}; }(c)});
   });
-  msg+='Para mag-delete: "tanggalin sa memory [key]"\nPara mag-edit: "baguhin ang [key]"';
-  appendChatMsg('ai',msg);
+
+  openAIModal('&#128202; Notes Overview', tabs[0].render, tabs);
 }
+
+
 
 // ─────────────────────────────────────────────────────────────
 // QUICK PROMPTS
@@ -1005,7 +1218,7 @@ var AI_QUICK_PROMPTS=[
   {label:'⚡ Bulk fix',     text:'Gusto kong i-bulk fix ang category ng maraming notes. Itanong mo kung anong category ang papalitan.'},
   {label:'📋 Add rule',     text:'Gusto ko magdagdag ng category rule sa memory. Itanong mo sa akin ang details.'},
   {label:'🧠 View memory',  action:'showMemoryDirect'},
-  {label:'📊 Overview',     text:'I-breakdown mo ang lahat ng notes ko per category. Ilang notes per category?'},
+  {label:'📊 Overview',     action:'showOverviewModal'},
   {label:'✏️ Edit memory',  action:'editMemoryDirect'},
   {label:'🗑️ Clear memory', text:'Gusto kong i-clear ang lahat ng AI memory. Kumpirmahin mo muna.'},
 ];
@@ -1039,6 +1252,7 @@ function renderQuickPrompts(){
     btn.addEventListener('click',function(){
       if(p.action==='showMemoryDirect'){showMemoryDirect();return;}
       if(p.action==='editMemoryDirect'){editMemoryDirect();return;}
+      if(p.action==='showOverviewModal'){showOverviewModal();return;}
       var inp=document.getElementById('ai-chat-input');
       if(inp){inp.value=p.text;sendAIChat();}
     });
