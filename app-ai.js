@@ -17,6 +17,52 @@ const AI_SESSION = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// API ENDPOINTS
+// Cerebras = primary (text)  |  Groq = backup + all vision
+// ─────────────────────────────────────────────────────────────
+const CEREBRAS_URL  = '/api/cerebras';   // server stores the key
+const CEREBRAS_MODEL = 'gpt-oss-120b';
+const GROQ_TEXT_MODEL   = 'llama-3.3-70b-versatile';
+const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+
+/**
+ * callCerebras — primary text inference.
+ * Falls back to Groq text model on any error.
+ * Returns { choices:[{message:{content:...}}] } shaped object.
+ */
+async function callLLM(messages, maxTokens, useVision) {
+  // Vision always goes to Groq
+  if (useVision) {
+    var r = await fetch(GROQ_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model: GROQ_VISION_MODEL, max_tokens: maxTokens, messages })
+    });
+    return r.json();
+  }
+
+  // Text: try Cerebras first
+  try {
+    var cr = await fetch(CEREBRAS_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model: CEREBRAS_MODEL, max_tokens: maxTokens, messages })
+    });
+    var cd = await cr.json();
+    // If Cerebras returned an error object, fall through to Groq
+    if (cd && !cd.error) return cd;
+    console.warn('[AI] Cerebras error, falling back to Groq:', cd.error);
+  } catch(e) {
+    console.warn('[AI] Cerebras unreachable, falling back to Groq:', e.message);
+  }
+
+  // Fallback: Groq text
+  var gr = await fetch(GROQ_URL, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ model: GROQ_TEXT_MODEL, max_tokens: maxTokens, messages })
+  });
+  return gr.json();
+}
+
+// ─────────────────────────────────────────────────────────────
 // INTENT ENGINE
 // ─────────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -473,12 +519,10 @@ async function executeAIAction(actionObj) {
           ? newRawNote
           : (n.rawNote && n.rawNote !== '[image]' ? n.rawNote : n.organizedContent || n.title);
 
-        var res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
-            {role:'system',content:buildReOrgPrompt(updates.category||'')},
-            {role:'user',content:contentToOrg}
-          ]})});
-        var rdata=await res.json();
+        var rdata=await callLLM([
+          {role:'system',content:buildReOrgPrompt(updates.category||'')},
+          {role:'user',content:contentToOrg}
+        ], 1800, false);
         if (!rdata.error) {
           var rraw=(rdata.choices[0].message.content||'').replace(/```json|```/g,'').trim();
           var rsi=rraw.indexOf('{'),rei=rraw.lastIndexOf('}');
@@ -554,12 +598,10 @@ async function executeAIAction(actionObj) {
           var tc2 = tNewRaw !== undefined
             ? tNewRaw
             : (tn.rawNote && tn.rawNote !== '[image]' ? tn.rawNote : tn.organizedContent || tn.title);
-          var tres=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
-              {role:'system',content:buildReOrgPrompt(tupdates.category||'')},
-              {role:'user',content:tc2}
-            ]})});
-          var tdata=await tres.json();
+          var tdata=await callLLM([
+            {role:'system',content:buildReOrgPrompt(tupdates.category||'')},
+            {role:'user',content:tc2}
+          ], 1800, false);
           if (!tdata.error) {
             var traw=(tdata.choices[0].message.content||'').replace(/```json|```/g,'').trim();
             var tsi2=traw.indexOf('{'),tei2=traw.lastIndexOf('}');
@@ -1001,17 +1043,14 @@ async function sendAIChat() {
   historyForAI[lastIdx] = {role:'user', content: historyUserContent};
 
   var useVision = !!currentImgB64;
-  var apiModel = useVision ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
+  // Vision → Groq (with system prompt as first user block, API limitation)
+  // Text  → Cerebras primary, Groq fallback (handled inside callLLM)
   var apiMessages = useVision
     ? [{role:'user', content:[{type:'text',text:buildAIInstructorPrompt()+'\n\nNow respond to the user:'}]}].concat(historyForAI)
     : [{role:'system', content:buildAIInstructorPrompt()}].concat(historyForAI);
 
   try {
-    var res=await fetch(GROQ_URL,{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ model: apiModel, max_tokens:1200, messages: apiMessages })
-    });
-    var data=await res.json();
+    var data=await callLLM(apiMessages, 1200, useVision);
     if (data.error) throw new Error(data.error.message||'API error');
     var reply=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
     var actionMatch=reply.match(/\[ACTION\]([\s\S]*?)\[\/ACTION\]/);
