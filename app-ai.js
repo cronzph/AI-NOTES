@@ -1,5 +1,5 @@
 // ============================================================
-// app-ai.js  —  AI Instructor  v2 (smarter rebuild)
+// app-ai.js  —  Notes AI Assistant  v2
 // Upgrades:
 //   1. Intent Engine  — understands casual/vague Filipino+English
 //   2. Proactive Mode — suggests fixes on panel open
@@ -351,7 +351,7 @@ function buildAIInstructorPrompt() {
 
   return [
 '================================================================',
-'IKAW: AI learner ng Notes AI app ni '+((window._currentUser&&window._currentUser.displayName)||'User')+'.',
+'IKAW: ang Notes AI Assistant ng '+((window._currentUser&&window._currentUser.displayName)||'User')+'. Ikaw ay natututo — bawat instruction ng user ay nire-remember mo at sinusunod sa lahat ng iyong desisyon.',
 'AWTORIDAD: FULL POWER sa notes at memory. Maaari kang mag-decide nang mag-isa.',
 'LAYUNIN: Maging MATALINO, PROACTIVE, at TUMPAK. Huwag magtanong ng hindi kailangan.',
 '================================================================',
@@ -408,6 +408,34 @@ memBlock,
   ].join('\n');
 }
 
+
+// ─────────────────────────────────────────────────────────────
+// RE-ORGANIZER PROMPT  — used when fixing note content
+// ─────────────────────────────────────────────────────────────
+function buildReOrgPrompt(forcedCategory) {
+  var lines = [
+    'You are a note organizer. Given raw note content, return ONLY valid JSON with these exact fields:',
+    '{',
+    '  "title": "short descriptive title based on content",',
+    '  "category": "ONE_OF[IT|STUDY|FREELANCE|CRYPTO|PERSONAL|OTHER]",',
+    '  "summary": "1-2 sentence summary",',
+    '  "keyPoints": ["key point 1", "key point 2"],',
+    '  "organizedContent": "well-structured markdown version of the note"',
+    '}',
+    '',
+    'Rules:',
+    '- organizedContent: rewrite as clean markdown with headers/bullets where appropriate',
+    '- title: max 60 chars, descriptive, based on actual content',
+    '- summary: concise, 1-2 sentences only',
+    '- keyPoints: array of strings, max 5 items',
+    '- DO NOT return rawNote — that field is never modified by the AI',
+    forcedCategory ? '- REQUIRED: category MUST be "' + forcedCategory + '". Do not change it.' : '- Pick the most accurate category from the list',
+    '',
+    'Return ONLY the JSON object. No explanation. No markdown fences. No preamble.',
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
 // ─────────────────────────────────────────────────────────────
 // EXECUTE ACTION
 // ─────────────────────────────────────────────────────────────
@@ -439,12 +467,11 @@ async function executeAIAction(actionObj) {
     var finalUpdates=Object.assign({},updates);
     if (reOrganize!==false&&(n.rawNote||n.organizedContent)) {
       try {
-        var hint=updates.category?'\n\nIMPORTANT: Tamang category ay "'+updates.category+'". Gamitin ito.':'';
         var content=n.rawNote&&n.rawNote!=='[image]'?n.rawNote:n.organizedContent||n.title;
         var res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
-            {role:'system',content:buildSysPrompt()+hint},
-            {role:'user',content:'I-re-organize:\n\n'+content}
+            {role:'system',content:buildReOrgPrompt(updates.category||'')},
+            {role:'user',content:content}
           ]})});
         var rdata=await res.json();
         if (!rdata.error) {
@@ -453,9 +480,13 @@ async function executeAIAction(actionObj) {
           var rp=JSON.parse(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw);
           function es(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
           function ea(v){return Array.isArray(v)?v.map(es).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-          finalUpdates={ title:updates.title||es(rp.title)||n.title,
-            category:updates.category||es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
-            summary:es(rp.summary), keyPoints:ea(rp.keyPoints), organizedContent:es(rp.organizedContent) };
+          finalUpdates={
+            title:    updates.title||es(rp.title)||n.title,
+            category: updates.category||es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
+            summary:  es(rp.summary),
+            keyPoints:ea(rp.keyPoints),
+            organizedContent: es(rp.organizedContent)
+          };
           if (updates.isPublic!==undefined) finalUpdates.isPublic=updates.isPublic;
         }
       } catch(re){console.warn('Re-org failed:',re.message);}
@@ -480,14 +511,13 @@ async function executeAIAction(actionObj) {
       if (!tn||!isMyNote(tn)){results.push('Skip: '+tfbKey);continue;}
       if (tupdates.category) tupdates.category=tupdates.category.toUpperCase().replace(/\s+/g,'_');
       var tFinal=Object.assign({},tupdates);
-      if (reOrg!==false&&tupdates.category&&(tn.rawNote||tn.organizedContent)) {
+      if (reOrg!==false&&(tn.rawNote||tn.organizedContent)) {
         try {
           var tc2=tn.rawNote&&tn.rawNote!=='[image]'?tn.rawNote:tn.organizedContent||tn.title;
-          var th2='\n\nIMPORTANT: Tamang category ay "'+tupdates.category+'". Gamitin ito.';
           var tres=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},
             body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:1800,messages:[
-              {role:'system',content:buildSysPrompt()+th2},
-              {role:'user',content:'I-re-organize:\n\n'+tc2}
+              {role:'system',content:buildReOrgPrompt(tupdates.category||'')},
+              {role:'user',content:tc2}
             ]})});
           var tdata=await tres.json();
           if (!tdata.error) {
@@ -496,8 +526,13 @@ async function executeAIAction(actionObj) {
             var tp2=JSON.parse(tsi2!==-1&&tei2!==-1?traw.slice(tsi2,tei2+1):traw);
             function tes(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
             function tea(v){return Array.isArray(v)?v.map(tes).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-            tFinal={category:tupdates.category,title:tupdates.title||tes(tp2.title)||tn.title,
-              summary:tes(tp2.summary),keyPoints:tea(tp2.keyPoints),organizedContent:tes(tp2.organizedContent)};
+            tFinal={
+              category: tupdates.category,
+              title:    tupdates.title||tes(tp2.title)||tn.title,
+              summary:  tes(tp2.summary),
+              keyPoints:tea(tp2.keyPoints),
+              organizedContent: tes(tp2.organizedContent)
+            };
           }
         } catch(re2){console.warn('Bulk re-org fail:',tn.title,re2.message);}
       }
@@ -1083,7 +1118,9 @@ function openAIChat(){
       var br=getBehaviorRules().length;
 
       appendChatMsg('ai',
-        'Hoy! AI learner ako.\n\n'+
+        'Hi! Ako ang iyong Notes AI Assistant 👋\n\n'+
+        'Pwede mo akong turuan — sabihin mo lang kung paano mo gusto ko mag-behave at itatanda ko para sa lahat ng susunod na gagawin ko.\n\n'+
+        'Halimbawa: "huwag mag-save ng testing notes", "palaging IT ang category ng code notes", "laging private ang personal notes ko" — lahat ng ganyan, natatandaan ko. 💡\n\n'+
         '📝 Notes: '+myNc+' | 🧠 Memory: '+mc+' entr'+(mc!==1?'ies':'y')+
         (br?' | '+br+' rule'+(br>1?'s':'')+' active ✓':'')+
         (cleaned.length?'\n🧹 Auto-cleaned: '+cleaned.length+' junk entr'+(cleaned.length>1?'ies':'y'):'')+'\n\n'+
