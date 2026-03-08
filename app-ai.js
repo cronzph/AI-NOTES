@@ -372,7 +372,10 @@ sessionBlock,
 '• "ayusin mo yan / yung note" = fix_note o bulk_fix',
 '• "linis na memory / clear na" = bulk_remove junk OR clear_all',
 '• "sino sino nasa memory / ano laman memory" = show memory list',
-'• "check mo notes ko / may mali ba" = mag-scan at mag-suggest ng fixes',
+'• "check mo notes ko / may mali ba" = mag-scan at mag-suggest ng fixes. Format ng output:',
+'  HUWAG mag-output ng JSON sa chat. Gamitin ang plain text list format:',
+'  "📋 [CATEGORY] Title ng Note — issue description"',
+'  Halimbawa: "🏷️ [OTHER→IT] My React Notes — maaaring IT ang tamang category"',
 '• "oo/sige/go/push/gawin" pagkatapos ng suggestion = execute ang proposed action',
 '• Vague command + context mula sa nakaraang messages = gamitin ang session context',
 '• "check mo memory kung meron tahos tanggalin" = scan then delete junk',
@@ -1125,10 +1128,25 @@ function updateMemoryBadge() {
 // CHAT UI HELPERS
 // ─────────────────────────────────────────────────────────────
 var _typingCounter=0;
+function cleanAIReply(text) {
+  // Remove any [ACTION]...[/ACTION] blocks (already stripped before calling, but safety net)
+  text = text.replace(/\[ACTION\][\s\S]*?\[\/ACTION\]/g, '').trim();
+  // Remove raw JSON objects/arrays that leaked into the reply
+  text = text.replace(/```json[\s\S]*?```/g, '').trim();
+  text = text.replace(/```[\s\S]*?```/g, '').trim();
+  // Remove bare JSON arrays like [{"fbKey":...}] or objects { ... }
+  text = text.replace(/(\n|^)\s*[\[{][\s\S]{0,2000}?[\]}]\s*(\n|$)/gm, '\n').trim();
+  // Collapse multiple blank lines
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text;
+}
+
 function appendChatMsg(role,text){
   var feed=document.getElementById('ai-chat-feed'); if(!feed) return;
+  // Clean JSON noise from AI messages only
+  var display = role === 'ai' ? cleanAIReply(text) : text;
   var div=document.createElement('div'); div.className='aicm aicm-'+role;
-  div.innerHTML='<div class="aicm-bubble">'+escChat(text)
+  div.innerHTML='<div class="aicm-bubble">'+escChat(display)
     .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
     .replace(/\n/g,'<br>')+'</div>';
   feed.appendChild(div); scrollChatToBottom();
@@ -1198,8 +1216,24 @@ function injectAIModalStyles(){
 .ai-mem-card-title{font-size:13px;font-weight:700;color:var(--text-b);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ai-mem-card-sub{font-size:11.5px;color:var(--text);line-height:1.5}
 .ai-mem-card-key{font-size:10px;color:var(--text-m);font-family:'JetBrains Mono',monospace;margin-top:4px}
-.ai-mem-card-del{width:28px;height:28px;background:transparent;border:1px solid transparent;border-radius:7px;color:var(--text-m);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;transition:all 0.2s}
-.ai-mem-card-del:hover{border-color:rgba(248,113,113,0.4);color:var(--red);background:rgba(248,113,113,0.06)}
+.ai-mem-card-actions{display:flex;gap:5px;flex-shrink:0;align-items:center}
+.ai-mem-card-del{width:30px;height:30px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.35);border-radius:7px;color:#f87171;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;transition:all 0.2s}
+.ai-mem-card-del:hover{background:rgba(248,113,113,0.18);border-color:#f87171;transform:scale(1.08)}
+.ai-mem-card-edit{width:30px;height:30px;background:rgba(251,146,60,0.08);border:1px solid rgba(251,146,60,0.35);border-radius:7px;color:#fb923c;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;transition:all 0.2s}
+.ai-mem-card-edit:hover{background:rgba(251,146,60,0.18);border-color:#fb923c;transform:scale(1.08)}
+.ai-mem-edit-modal{position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.85);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:16px}
+.ai-mem-edit-box{background:var(--surface);border:1px solid var(--border-h);border-radius:18px;width:100%;max-width:480px;padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 80px rgba(0,0,0,0.6);animation:aimo-slide 0.22s cubic-bezier(0.34,1.56,0.64,1)}
+.ai-mem-edit-title{font-size:14px;font-weight:800;color:var(--text-b);display:flex;align-items:center;gap:8px}
+.ai-mem-edit-field{display:flex;flex-direction:column;gap:5px}
+.ai-mem-edit-label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace}
+.ai-mem-edit-input{background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:9px 12px;outline:none;transition:all 0.2s;width:100%}
+.ai-mem-edit-input:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
+.ai-mem-edit-ta{resize:vertical;min-height:80px;line-height:1.6;font-family:'JetBrains Mono',monospace;font-size:12px}
+.ai-mem-edit-foot{display:flex;gap:8px;justify-content:flex-end;padding-top:4px}
+.ai-mem-edit-save{padding:9px 20px;border:none;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s}
+.ai-mem-edit-save:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(59,130,246,0.4)}
+.ai-mem-edit-cancel{padding:9px 16px;border:1px solid var(--border);border-radius:9px;background:var(--surface2);color:var(--text-m);font-family:'Outfit',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.ai-mem-edit-cancel:hover{border-color:var(--border-h);color:var(--text-b)}
 .ai-sec-label{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;padding:4px 0 2px}
 .ai-empty-state{text-align:center;padding:32px 20px;color:var(--text-m);font-size:13px}
 .ai-empty-state .ico{font-size:32px;display:block;margin-bottom:8px;opacity:0.3}
@@ -1282,6 +1316,92 @@ function showMemoryDirect(){
   var rules    =entries.filter(function(e){return e[1].categoryRule&&!e[1].behaviorRule;});
   var topics   =entries.filter(function(e){return !e[1].behaviorRule&&!e[1].categoryRule&&e[1].category!=='BEHAVIOR';});
 
+  function openMemEditModal(kv) {
+    // Remove existing edit modal if any
+    var existing = document.getElementById('ai-mem-edit-modal');
+    if (existing) existing.remove();
+
+    var v = kv[1], k = kv[0];
+    var overlay = document.createElement('div');
+    overlay.className = 'ai-mem-edit-modal'; overlay.id = 'ai-mem-edit-modal';
+
+    var box = document.createElement('div'); box.className = 'ai-mem-edit-box';
+
+    // Title
+    var titleEl = document.createElement('div'); titleEl.className = 'ai-mem-edit-title';
+    titleEl.innerHTML = '✏️ Edit Memory Entry';
+    box.appendChild(titleEl);
+
+    // Title field
+    var fTitle = document.createElement('div'); fTitle.className = 'ai-mem-edit-field';
+    var lTitle = document.createElement('div'); lTitle.className = 'ai-mem-edit-label'; lTitle.textContent = 'Title';
+    var iTitle = document.createElement('input'); iTitle.className = 'ai-mem-edit-input';
+    iTitle.value = v.title || k;
+    fTitle.appendChild(lTitle); fTitle.appendChild(iTitle); box.appendChild(fTitle);
+
+    // Summary / Rule field
+    var summaryVal = v.behaviorRule || v.categoryRule || v.summary || '';
+    var fSum = document.createElement('div'); fSum.className = 'ai-mem-edit-field';
+    var lSum = document.createElement('div'); lSum.className = 'ai-mem-edit-label';
+    lSum.textContent = v.behaviorRule ? 'Behavior Rule' : v.categoryRule ? 'Category Rule' : 'Summary';
+    var iSum = document.createElement('textarea'); iSum.className = 'ai-mem-edit-input ai-mem-edit-ta';
+    iSum.value = summaryVal;
+    fSum.appendChild(lSum); fSum.appendChild(iSum); box.appendChild(fSum);
+
+    // Category field
+    var fCat = document.createElement('div'); fCat.className = 'ai-mem-edit-field';
+    var lCat = document.createElement('div'); lCat.className = 'ai-mem-edit-label'; lCat.textContent = 'Category';
+    var iCat = document.createElement('input'); iCat.className = 'ai-mem-edit-input';
+    iCat.value = v.category || 'OTHER';
+    fCat.appendChild(lCat); fCat.appendChild(iCat); box.appendChild(fCat);
+
+    // Buttons
+    var foot = document.createElement('div'); foot.className = 'ai-mem-edit-foot';
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'ai-mem-edit-cancel'; cancelBtn.textContent = 'Cancel';
+    var saveBtn = document.createElement('button'); saveBtn.className = 'ai-mem-edit-save'; saveBtn.textContent = '💾 Save';
+
+    cancelBtn.addEventListener('click', function(){ overlay.remove(); });
+    overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove(); });
+
+    saveBtn.addEventListener('click', async function(){
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+      var newTitle   = iTitle.value.trim() || v.title || k;
+      var newSummary = iSum.value.trim();
+      var newCat     = iCat.value.trim().toUpperCase().replace(/\s+/g,'_') || v.category || 'OTHER';
+
+      var updated = Object.assign({}, v, {
+        title:    newTitle,
+        category: newCat,
+        summary:  newSummary,
+        updated:  Date.now(),
+      });
+      if (v.behaviorRule) updated.behaviorRule = newSummary;
+      if (v.categoryRule) updated.categoryRule = newSummary;
+
+      try {
+        if (window._db && window._update && window._ref)
+          await window._update(window._ref(window._db, 'ai_memory'), { [k]: updated });
+        aiMemory[k] = updated;
+        updateMemoryBadge();
+        appendChatMsg('ai', '✅ Na-update ang memory entry: "' + newTitle + '"');
+        overlay.remove();
+        closeAIModal();
+        setTimeout(showMemoryDirect, 150);
+      } catch(e) {
+        appendChatMsg('ai', '⚠️ Save failed: ' + e.message);
+        saveBtn.disabled = false; saveBtn.textContent = '💾 Save';
+      }
+    });
+
+    foot.appendChild(cancelBtn); foot.appendChild(saveBtn);
+    box.appendChild(foot);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    // Focus first input
+    setTimeout(function(){ iTitle.focus(); iTitle.select(); }, 80);
+  }
+
   function makeCard(kv, ico, sub){
     var card=document.createElement('div'); card.className='ai-mem-card';
     var icoEl=document.createElement('div'); icoEl.className='ai-mem-card-ico'; icoEl.textContent=ico;
@@ -1291,8 +1411,19 @@ function showMemoryDirect(){
     var keyEl=document.createElement('div'); keyEl.className='ai-mem-card-key'; keyEl.textContent='key: '+kv[0];
     bodyEl.appendChild(titleEl); bodyEl.appendChild(subEl); bodyEl.appendChild(keyEl);
     card.appendChild(icoEl); card.appendChild(bodyEl);
-    var del=document.createElement('button'); del.className='ai-mem-card-del'; del.innerHTML='&#128465;';
-    del.title='Delete';
+
+    // Action buttons wrapper
+    var actions = document.createElement('div'); actions.className = 'ai-mem-card-actions';
+
+    // Edit button — orange pencil
+    var edit = document.createElement('button'); edit.className = 'ai-mem-card-edit';
+    edit.title = 'Edit'; edit.innerHTML = '✏️';
+    edit.addEventListener('click', function(){ openMemEditModal(kv); });
+    actions.appendChild(edit);
+
+    // Delete button — red trash
+    var del=document.createElement('button'); del.className='ai-mem-card-del';
+    del.title='Delete'; del.innerHTML='🗑️';
     del.addEventListener('click',function(){
       if(!confirm('Delete "'+( kv[1].title||kv[0])+'"?')) return;
       executeAIAction({type:'remove_memory',data:{key:kv[0]}}).then(function(r){
@@ -1301,7 +1432,9 @@ function showMemoryDirect(){
         setTimeout(showMemoryDirect,150);
       });
     });
-    card.appendChild(del);
+    actions.appendChild(del);
+
+    card.appendChild(actions);
     return card;
   }
 
