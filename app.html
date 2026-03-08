@@ -513,6 +513,10 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
         <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
         Shared With Me <span class="mtab-count" id="mtab-shared-cnt"></span>
       </button>
+      <button class="mtab" id="mtab-sharedme" onclick="switchMainTab('sharedme',this)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        Shared by Me <span class="mtab-count" id="mtab-sharedme-cnt"></span>
+      </button>
     </div>
 
     <div class="filter-bar">
@@ -527,6 +531,7 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
     <div id="tab-mine" class="tab-panel active"><div id="sec-my"></div></div>
     <div id="tab-community" class="tab-panel"><div id="sec-community"></div></div>
     <div id="tab-shared" class="tab-panel"><div id="sec-shared"></div></div>
+    <div id="tab-sharedme" class="tab-panel"><div id="sec-sharedme"></div></div>
   </main>
 </div>
 
@@ -732,6 +737,7 @@ function switchMainTab(tab,btn){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   const tp=document.getElementById('tab-'+tab);if(tp)tp.classList.add('active');
   if(tab==='shared' && typeof renderSharedWithMe==='function') renderSharedWithMe();
+  if(tab==='sharedme' && typeof renderFriendsUI==='function') renderFriendsUI();
 }
 
 async function process(){

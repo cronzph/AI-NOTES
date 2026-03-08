@@ -343,14 +343,10 @@ function openFriendsPanel() {
   var tabs = document.createElement('div'); tabs.className = 'friend-tabs';
 
   var pendingCount = Object.keys(window.pendingRequests||{}).filter(function(k){return window.pendingRequests[k].status==='pending';}).length;
-  var sharedByMeCount = (window.allNotes||[]).filter(function(n){
-    return isMyNote(n) && n.sharedWith && Object.keys(n.sharedWith).length > 0;
-  }).length;
 
   var tabDefs = [
     { id:'friends',   label:'Friends (' + Object.keys(window.myFriends||{}).length + ')' },
     { id:'requests',  label:'Requests' + (pendingCount > 0 ? ' 🔴' : '') },
-    { id:'sharedme',  label:'Shared by Me' + (sharedByMeCount > 0 ? ' (' + sharedByMeCount + ')' : '') },
     { id:'search',    label:'+ Add Friend' },
   ];
 
@@ -386,12 +382,6 @@ function openFriendsPanel() {
   bodies['requests'] = rBody;
   renderRequestsList(rBody);
 
-  // ── SHARED BY ME ──
-  var smBody = document.createElement('div'); smBody.className = 'friend-tab-body'; smBody.id = 'ftab-sharedme';
-  smBody.style.display = 'none';
-  bodies['sharedme'] = smBody;
-  renderSharedByMe(smBody);
-
   // ── SEARCH / ADD ──
   var sBody = document.createElement('div'); sBody.className = 'friend-tab-body'; sBody.id = 'ftab-search';
   sBody.style.display = 'none';
@@ -400,7 +390,6 @@ function openFriendsPanel() {
 
   bodyWrap.appendChild(fBody);
   bodyWrap.appendChild(rBody);
-  bodyWrap.appendChild(smBody);
   bodyWrap.appendChild(sBody);
   box.appendChild(bodyWrap);
 
@@ -411,17 +400,13 @@ function openFriendsPanel() {
   function refreshTab(tab) {
     if (tab === 'friends') renderFriendsList(bodies['friends']);
     else if (tab === 'requests') renderRequestsList(bodies['requests']);
-    else if (tab === 'sharedme') renderSharedByMe(bodies['sharedme']);
-    // Update tab labels too
     updateTabLabels();
   }
 
   function updateTabLabels() {
     var pc = Object.keys(window.pendingRequests||{}).filter(function(k){return window.pendingRequests[k].status==='pending';}).length;
-    var sc = (window.allNotes||[]).filter(function(n){ return isMyNote(n) && n.sharedWith && Object.keys(n.sharedWith).length > 0; }).length;
     var fb = document.getElementById('ftab-btn-friends'); if(fb) fb.textContent = 'Friends (' + Object.keys(window.myFriends||{}).length + ')';
     var rb = document.getElementById('ftab-btn-requests'); if(rb) rb.textContent = 'Requests' + (pc > 0 ? ' 🔴' : '');
-    var sb = document.getElementById('ftab-btn-sharedme'); if(sb) sb.textContent = 'Shared by Me' + (sc > 0 ? ' (' + sc + ')' : '');
   }
 
   // Poll-free: hook into existing onValue streams via a watcher interval
@@ -684,16 +669,29 @@ function buildSharedCard(n) {
 // FRIENDS UI in existing renderApp cycle
 // ─────────────────────────────────────────────────────────────
 function renderFriendsUI() {
-  // Update shared with me tab count
   var me = window._currentUser;
   if (!me) return;
   var uid = me.uid;
-  var sharedCount = (window.allNotes || []).filter(function(n){
+
+  // Shared With Me count
+  var sharedWithMeCount = (window.allNotes || []).filter(function(n){
     return n.sharedWith && n.sharedWith[uid] && !isMyNote(n);
   }).length;
   var sharedCnt = document.getElementById('mtab-shared-cnt');
-  if (sharedCnt) sharedCnt.textContent = sharedCount || '';
+  if (sharedCnt) sharedCnt.textContent = sharedWithMeCount || '';
+
+  // Shared by Me count
+  var sharedByMeCount = (window.allNotes || []).filter(function(n){
+    return isMyNote(n) && n.sharedWith && Object.keys(n.sharedWith).length > 0;
+  }).length;
+  var sharedMeCnt = document.getElementById('mtab-sharedme-cnt');
+  if (sharedMeCnt) sharedMeCnt.textContent = sharedByMeCount || '';
+
   renderSharedWithMe();
+
+  // Render Shared by Me main tab
+  var secSharedMe = document.getElementById('sec-sharedme');
+  if (secSharedMe) renderSharedByMe(secSharedMe);
 }
 
 // ─────────────────────────────────────────────────────────────
