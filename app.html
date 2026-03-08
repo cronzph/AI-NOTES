@@ -808,18 +808,7 @@ async function saveNote(p,source,rawNote=''){
   await updateAIMemory(note);
 }
 
-function confirmEdit(fbKeyOrId) {
-  const _n = window.allNotes.find(x => x.fbKey === fbKeyOrId || String(x.id) === String(fbKeyOrId));
-  if (_n && !isMyNote(_n)) { showToast('⚠️ Hindi mo ma-edit ang notes ng iba.'); return; }
-  showConfirm({
-    icon: '✏️',
-    title: 'Edit this note?',
-    message: '"' + ((_n && _n.title) || 'Note').slice(0, 50) + '"',
-    confirmLabel: 'Edit',
-    confirmClass: 'primary',
-    onConfirm: function() { if (typeof openEdit === 'function') openEdit(fbKeyOrId); }
-  });
-}
+async function toggleNoteVisibility(fbKey,currentIsPublic,e){
   if(e)e.stopPropagation();
   const newVal=!currentIsPublic;
   if(window._db&&window._update&&window._ref&&fbKey){
@@ -936,7 +925,7 @@ function buildCard(n,mine){
   // Share button only for my notes
   const shareBtn=mine?`<button class="anc-btn share-b" onclick="event.stopPropagation();openShareModal('${n.fbKey||''}')" title="Share">🔗</button>`:'';
   const btns=mine
-    ?`${shareBtn}<button class="anc-btn edit-b" onclick="event.stopPropagation();confirmEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
+    ?`${shareBtn}<button class="anc-btn edit-b" onclick="event.stopPropagation();openEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
     :'';
   return`<div class="anc${mine?'':' community'}" onclick="openView('${n.fbKey||n.id}')">
     <div class="nc-stripe" style="background:${getCatStripe(n.category)}"></div>
