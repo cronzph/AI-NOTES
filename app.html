@@ -26,6 +26,8 @@
       window._db = db; window._auth = auth;
       window._ref = ref; window._push = push; window._remove = remove;
       window._update = update; window._get = get;
+      // Expose onValue for friend system
+      window._onValue = onValue;
       window._signOut = () => signOut(auth);
 
       onAuthStateChanged(auth, user => {
@@ -35,6 +37,8 @@
         document.getElementById('user-av').textContent = initials;
         document.getElementById('user-name').textContent = user.displayName || user.email.split('@')[0];
         loadAIMemory();
+        // Init friend system after auth
+        if (typeof initFriendSystem === 'function') initFriendSystem();
       });
 
       const notesRef = ref(db, 'notes');
@@ -44,6 +48,8 @@
           ? Object.entries(data).map(([fbKey,v]) => ({fbKey,...v})).sort((a,b) => b.id - a.id)
           : [];
         renderApp();
+        // Re-render shared tab when notes update
+        if (typeof renderFriendsUI === 'function') renderFriendsUI();
       });
     } catch(err) {
       console.error(err);
@@ -91,6 +97,7 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;disp
 .search-wrap svg{color:var(--text-m);flex-shrink:0}
 .search-wrap input{background:none;border:none;outline:none;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;width:100%}
 .search-wrap input::placeholder{color:var(--text-m)}
+.nav-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .user-pill{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:6px 10px;font-size:12px;font-weight:600;color:var(--text-b);cursor:pointer;transition:all 0.2s;flex-shrink:0}
 .user-pill:hover{border-color:var(--border-h)}
 .user-avatar{width:22px;height:22px;background:linear-gradient(135deg,#3b82f6,#22d3ee);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0}
@@ -100,82 +107,32 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;disp
 
 /* SIDEBAR */
 .sidebar{border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface);overflow:hidden;min-height:0}
-
 .hidden{display:none!important}
 .sec-lbl{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text-m);font-family:'JetBrains Mono',monospace;flex-shrink:0}
 
-/* ── COMPOSER — unified message-style input ── */
+/* COMPOSER */
 .composer{flex:1;display:flex;flex-direction:column;min-height:0;padding:12px;gap:0}
-
-/* Outer bubble — the whole input area */
-.composer-box{
-  flex:1;display:flex;flex-direction:column;min-height:0;
-  background:var(--surface2);border:1px solid var(--border);
-  border-radius:14px;overflow:hidden;
-  transition:border-color 0.2s,box-shadow 0.2s;
-}
+.composer-box{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--surface2);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:border-color 0.2s,box-shadow 0.2s}
 .composer-box:focus-within{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
-
-/* Textarea inside composer */
-textarea.ti{
-  flex:1;min-height:120px;background:transparent;border:none;
-  color:var(--text-b);font-family:'JetBrains Mono',monospace;
-  font-size:12px;line-height:1.9;padding:13px 14px;
-  resize:none;outline:none;width:100%;
-  overflow-y:auto;scrollbar-width:thin;
-}
+textarea.ti{flex:1;min-height:120px;background:transparent;border:none;color:var(--text-b);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.9;padding:13px 14px;resize:none;outline:none;width:100%;overflow-y:auto;scrollbar-width:thin}
 textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
-
-/* Image chip strip — shown when image is attached */
-.img-chip-strip{
-  display:none;flex-direction:row;align-items:center;gap:8px;
-  padding:8px 12px;border-top:1px solid var(--border);
-  background:var(--surface3);flex-shrink:0;flex-wrap:wrap;
-}
+.img-chip-strip{display:none;flex-direction:row;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border);background:var(--surface3);flex-shrink:0;flex-wrap:wrap}
 .img-chip-strip.show{display:flex}
-.img-chip{
-  position:relative;border-radius:8px;overflow:hidden;
-  width:56px;height:56px;flex-shrink:0;cursor:pointer;
-  border:1px solid var(--border-h);
-  transition:transform 0.15s,box-shadow 0.15s;
-}
+.img-chip{position:relative;border-radius:8px;overflow:hidden;width:56px;height:56px;flex-shrink:0;cursor:pointer;border:1px solid var(--border-h);transition:transform 0.15s,box-shadow 0.15s}
 .img-chip:hover{transform:scale(1.05);box-shadow:0 4px 14px rgba(0,0,0,0.4)}
 .img-chip img{width:100%;height:100%;object-fit:cover;display:block}
-.img-chip-rm{
-  position:absolute;top:2px;right:2px;
-  width:16px;height:16px;border-radius:50%;
-  background:rgba(0,0,0,0.75);color:#fff;
-  font-size:9px;display:flex;align-items:center;justify-content:center;
-  cursor:pointer;line-height:1;border:none;
-  transition:background 0.15s;
-}
+.img-chip-rm{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:rgba(0,0,0,0.75);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;line-height:1;border:none;transition:background 0.15s}
 .img-chip-rm:hover{background:var(--red)}
 .img-chip-hint{font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace}
-
-/* Composer toolbar — bottom bar with + button and paste hint */
-.composer-toolbar{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 10px;border-top:1px solid var(--border);
-  background:var(--surface3);flex-shrink:0;
-}
-/* + attach button */
-.attach-btn{
-  width:32px;height:32px;border-radius:8px;
-  border:1px solid var(--border-h);background:var(--surface2);
-  color:var(--a2);font-size:18px;font-weight:300;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;transition:all 0.18s;flex-shrink:0;
-  line-height:1;
-}
+.composer-toolbar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border);background:var(--surface3);flex-shrink:0}
+.attach-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--border-h);background:var(--surface2);color:var(--a2);font-size:18px;font-weight:300;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.18s;flex-shrink:0;line-height:1}
 .attach-btn:hover{background:var(--ag);border-color:var(--a);transform:scale(1.08)}
 .attach-btn:active{transform:scale(0.95)}
 .toolbar-hint{font-size:10px;color:var(--text-m);font-family:'JetBrains Mono',monospace;flex:1}
 .toolbar-hint kbd{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:9px;color:var(--a2)}
-
-/* Hidden file input */
 #fi{display:none}
 
-/* Full-size image lightbox */
+/* LIGHTBOX */
 .lightbox{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.88);display:none;align-items:center;justify-content:center;padding:20px;cursor:zoom-out;backdrop-filter:blur(10px)}
 .lightbox.on{display:flex}
 .lightbox img{max-width:100%;max-height:90vh;border-radius:12px;box-shadow:0 20px 80px rgba(0,0,0,0.6);object-fit:contain}
@@ -218,8 +175,9 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .main-content::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
 
 /* MAIN TABS */
-.main-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;padding:0 16px}
-.mtab{display:flex;align-items:center;gap:6px;padding:13px 16px;font-size:13px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;color:var(--text-m);background:none;border:none;border-bottom:2px solid transparent;transition:all 0.2s;position:relative}
+.main-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;padding:0 16px;overflow-x:auto;scrollbar-width:none}
+.main-tabs::-webkit-scrollbar{display:none}
+.mtab{display:flex;align-items:center;gap:6px;padding:13px 14px;font-size:13px;font-weight:700;font-family:'Outfit',sans-serif;cursor:pointer;color:var(--text-m);background:none;border:none;border-bottom:2px solid transparent;transition:all 0.2s;position:relative;white-space:nowrap;flex-shrink:0}
 .mtab.active{color:var(--a2);border-bottom-color:var(--a2)}
 .mtab:hover:not(.active){color:var(--text-b)}
 .mtab-count{background:var(--ag);color:var(--a2);font-size:10px;font-weight:800;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center}
@@ -247,16 +205,7 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(clamp(220px,28vw,270px),1fr));gap:12px}
 
 /* AI FAB */
-.ai-fab{
-  position:fixed;bottom:24px;right:24px;z-index:350;
-  width:52px;height:52px;border-radius:16px;
-  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
-  border:none;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  box-shadow:0 6px 28px rgba(59,130,246,0.5);
-  transition:all 0.25s cubic-bezier(0.34,1.56,0.64,1);
-  color:#fff;
-}
+.ai-fab{position:fixed;bottom:24px;right:24px;z-index:350;width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 28px rgba(59,130,246,0.5);transition:all 0.25s cubic-bezier(0.34,1.56,0.64,1);color:#fff}
 .ai-fab:hover{transform:translateY(-3px) scale(1.06);box-shadow:0 10px 36px rgba(59,130,246,0.65)}
 .ai-fab:active{transform:scale(0.94)}
 .ai-fab .ai-fab-x{display:none;font-size:18px;font-weight:300;line-height:1}
@@ -264,27 +213,14 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .ai-fab.active .ai-fab-ico{display:none}
 .ai-fab.active .ai-fab-x{display:block}
 .ai-fab.active{background:linear-gradient(135deg,#ef4444,#b91c1c);box-shadow:0 6px 28px rgba(239,68,68,0.4)}
-/* Pulse ring when not open */
 .ai-fab::after{content:'';position:absolute;inset:-4px;border-radius:20px;border:2px solid rgba(59,130,246,0.4);animation:fabring 2.5s ease-in-out infinite;pointer-events:none}
 @keyframes fabring{0%,100%{opacity:0;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
 .ai-fab.active::after{display:none}
 
 /* AI CHAT PANEL */
-.ai-panel{
-  position:fixed;bottom:90px;right:24px;z-index:340;
-  width:360px;max-height:520px;
-  background:var(--surface);border:1px solid var(--border-h);
-  border-radius:20px;
-  display:flex;flex-direction:column;
-  box-shadow:0 24px 80px rgba(0,0,0,0.6);
-  transform:translateY(20px) scale(0.95);opacity:0;pointer-events:none;
-  transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1);
-}
+.ai-panel{position:fixed;bottom:90px;right:24px;z-index:340;width:360px;max-height:520px;background:var(--surface);border:1px solid var(--border-h);border-radius:20px;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);transform:translateY(20px) scale(0.95);opacity:0;pointer-events:none;transition:all 0.3s cubic-bezier(0.34,1.56,0.64,1)}
 .ai-panel.open{transform:none;opacity:1;pointer-events:all}
-.ai-panel-head{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;
-}
+.ai-panel-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
 .ai-panel-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--text-b)}
 .ai-panel-dot{width:8px;height:8px;border-radius:50%;background:var(--a2);animation:mpulse 2s infinite;flex-shrink:0}
 .ai-panel-close{width:26px;height:26px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:var(--text-m);transition:all 0.2s}
@@ -292,58 +228,25 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .ai-chat-feed{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0;scrollbar-width:thin}
 .ai-chat-feed::-webkit-scrollbar{width:3px}
 .ai-chat-feed::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
-
-/* Chat messages */
 .aicm{display:flex}
 .aicm-ai{justify-content:flex-start}
 .aicm-user{justify-content:flex-end}
-.aicm-bubble{
-  max-width:88%;padding:9px 13px;border-radius:14px;
-  font-size:12.5px;line-height:1.65;
-}
+.aicm-bubble{max-width:88%;padding:9px 13px;border-radius:14px;font-size:12.5px;line-height:1.65}
 .aicm-ai .aicm-bubble{background:var(--surface2);border:1px solid var(--border);color:var(--text-b);border-radius:4px 14px 14px 14px}
 .aicm-user .aicm-bubble{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;border-radius:14px 14px 4px 14px}
-
-/* Typing indicator */
 .aicm-typing{display:flex;align-items:center;gap:4px;padding:11px 14px}
 .aicm-typing span{width:6px;height:6px;border-radius:50%;background:var(--text-m);animation:tydot 1.2s ease-in-out infinite}
 .aicm-typing span:nth-child(2){animation-delay:0.2s}
 .aicm-typing span:nth-child(3){animation-delay:0.4s}
 @keyframes tydot{0%,80%,100%{transform:scale(0.7);opacity:0.4}40%{transform:scale(1);opacity:1}}
-
-/* Quick prompt chips */
 .ai-quick-prompts{display:flex;flex-wrap:wrap;gap:5px;padding:8px 12px;border-top:1px solid var(--border);flex-shrink:0}
-.ai-qp{
-  padding:4px 10px;border-radius:20px;
-  border:1px solid var(--border);background:var(--surface2);
-  color:var(--text-m);font-size:11px;font-weight:600;
-  cursor:pointer;font-family:'Outfit',sans-serif;
-  transition:all 0.18s;white-space:nowrap;
-}
+.ai-qp{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text-m);font-size:11px;font-weight:600;cursor:pointer;font-family:'Outfit',sans-serif;transition:all 0.18s;white-space:nowrap}
 .ai-qp:hover{border-color:var(--a);color:var(--a2);background:var(--ag)}
-
-/* Chat input */
-.ai-chat-input-wrap{
-  display:flex;align-items:flex-end;gap:8px;
-  padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0;
-}
-.ai-chat-input{
-  flex:1;background:var(--surface2);border:1px solid var(--border);
-  border-radius:10px;color:var(--text-b);
-  font-family:'Outfit',sans-serif;font-size:13px;
-  padding:9px 12px;resize:none;outline:none;
-  min-height:38px;max-height:120px;line-height:1.5;
-  transition:border-color 0.2s,box-shadow 0.2s;
-}
+.ai-chat-input-wrap{display:flex;align-items:flex-end;gap:8px;padding:10px 12px;border-top:1px solid var(--border);flex-shrink:0}
+.ai-chat-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:9px 12px;resize:none;outline:none;min-height:38px;max-height:120px;line-height:1.5;transition:border-color 0.2s,box-shadow 0.2s}
 .ai-chat-input:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
 .ai-chat-input::placeholder{color:var(--text-m);font-size:12px}
-.ai-chat-send{
-  width:36px;height:36px;flex-shrink:0;
-  background:linear-gradient(135deg,#3b82f6,#1d4ed8);
-  border:none;border-radius:10px;color:#fff;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;transition:all 0.2s;
-}
+.ai-chat-send{width:36px;height:36px;flex-shrink:0;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;border-radius:10px;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s}
 .ai-chat-send:hover{transform:scale(1.08);box-shadow:0 4px 16px rgba(59,130,246,0.4)}
 .ai-chat-send:disabled{opacity:0.4;cursor:not-allowed;transform:none}
 
@@ -352,6 +255,7 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 @keyframes cin{from{opacity:0;transform:translateY(12px) scale(0.97)}to{opacity:1;transform:none}}
 .anc:hover{border-color:var(--border-h);transform:translateY(-3px);box-shadow:0 12px 36px rgba(0,0,0,0.3)}
 .anc.community{border-left:2px solid rgba(34,211,238,0.3)}
+.anc.shared-card{border-left:2px solid rgba(96,165,250,0.4)}
 .nc-stripe{position:absolute;top:0;left:0;right:0;height:2px}
 .nc-top{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .cpill{font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:1px;padding:3px 9px;border-radius:6px;white-space:nowrap}
@@ -404,6 +308,8 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .mfbtn.edit:hover{border-color:var(--green);background:rgba(74,222,128,0.12);transform:translateY(-1px)}
 .mfbtn.del{border-color:rgba(248,113,113,0.2);color:var(--red);background:rgba(248,113,113,0.05)}
 .mfbtn.del:hover{border-color:var(--red);background:rgba(248,113,113,0.1)}
+.mfbtn.share{border-color:rgba(96,165,250,0.3);color:var(--a2);background:rgba(96,165,250,0.06)}
+.mfbtn.share:hover{border-color:var(--a2);background:rgba(96,165,250,0.12);transform:translateY(-1px)}
 
 /* EDIT MODAL */
 .modal-edit{background:var(--surface);border:1px solid var(--border-h);border-radius:20px;width:100%;max-width:640px;max-height:91vh;display:flex;flex-direction:column;animation:min 0.28s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 28px 90px rgba(0,0,0,0.65)}
@@ -444,8 +350,6 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .empty-s{font-size:12px;color:var(--text-m);opacity:0.5}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
-
-/* Edit modal image chip */
 .ef-img-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:4px}
 .ef-img-chip{position:relative;width:72px;height:72px;border-radius:10px;overflow:hidden;border:1px solid var(--border-h);flex-shrink:0;cursor:zoom-in}
 .ef-img-chip img{width:100%;height:100%;object-fit:cover;display:block}
@@ -497,30 +401,29 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
     <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" placeholder="Search notes..." oninput="doSearch(this.value)">
   </div>
-  <div class="user-pill" onclick="doSignOut()">
-    <div class="user-avatar" id="user-av">?</div>
-    <span id="user-name" class="user-uname" style="max-width:80px;overflow:hidden;text-overflow:ellipsis">User</span>
-    <span class="user-out" style="color:var(--text-m);font-size:11px">· Out</span>
+  <div class="nav-right">
+    <!-- Friends button -->
+    <button class="friend-nav-btn" onclick="openFriendsPanel()" title="Friends">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span id="friend-notif-badge"></span>
+    </button>
+    <div class="user-pill" onclick="doSignOut()">
+      <div class="user-avatar" id="user-av">?</div>
+      <span id="user-name" class="user-uname" style="max-width:80px;overflow:hidden;text-overflow:ellipsis">User</span>
+      <span class="user-out" style="color:var(--text-m);font-size:11px">· Out</span>
+    </div>
   </div>
 </nav>
 
 <div class="app-body">
-  <!-- SIDEBAR — unified message-composer style -->
+  <!-- SIDEBAR -->
   <aside class="sidebar">
-
-    <!-- Hidden file input — triggered by the + button below -->
     <input type="file" accept="image/*" id="fi" onchange="onFile(event)">
-
-    <!-- Composer box -->
     <div class="composer">
       <div class="composer-box" id="composer-box">
-
-        <!-- Text area — always visible, works alone or with an image -->
         <textarea class="ti" id="txtArea"
           placeholder="I-paste mo dito ang notes mo...&#10;&#10;Pwede ring mag-attach ng image sa ibaba ↓&#10;&#10;Bahala na si AI mag-organize 😄"
           oninput="autoGrow(this)"></textarea>
-
-        <!-- Image chip strip — appears when image is attached -->
         <div class="img-chip-strip" id="chipStrip">
           <div class="img-chip" id="imgChip">
             <img id="chipImg" src="" alt="attached">
@@ -528,25 +431,18 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
           </div>
           <span class="img-chip-hint">Tap image to preview</span>
         </div>
-
-        <!-- Toolbar bar at bottom of composer -->
         <div class="composer-toolbar">
-          <!-- + button to attach image -->
-          <button type="button" class="attach-btn" onclick="document.getElementById('fi').click()" title="Attach image / take photo">
+          <button type="button" class="attach-btn" onclick="document.getElementById('fi').click()" title="Attach image">
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <span class="toolbar-hint">Attach image · Paste <kbd>Ctrl+V</kbd></span>
         </div>
       </div>
     </div>
-
-    <!-- AI Memory indicator -->
     <div class="ai-mem-bar" id="aiMemBar">
       <div class="ai-mem-dot"></div>
       <span id="aiMemTxt">AI memory loaded</span>
     </div>
-
-    <!-- Visibility toggle -->
     <div class="vis-toggle-wrap">
       <div class="vis-toggle">
         <button class="vis-opt active-pub" id="vOptPub" onclick="setVisibility('public')"><span>🌐</span> Public</button>
@@ -554,7 +450,6 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
         <button class="vis-opt" id="vOptPriv" onclick="setVisibility('private')"><span>🔒</span> Private</button>
       </div>
     </div>
-
     <div class="proc-area">
       <div class="lbar" id="lbar">
         <div class="lbar-track"><div class="lbar-fill"></div></div>
@@ -569,7 +464,6 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
-    <!-- Tab bar -->
     <div class="main-tabs">
       <button class="mtab active" id="mtab-mine" onclick="switchMainTab('mine',this)">
         <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -579,9 +473,12 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
         <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         Community <span class="mtab-count" id="mtab-com-cnt"></span>
       </button>
+      <button class="mtab" id="mtab-shared" onclick="switchMainTab('shared',this)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        Shared With Me <span class="mtab-count" id="mtab-shared-cnt"></span>
+      </button>
     </div>
 
-    <!-- Filters row (category + visibility) -->
     <div class="filter-bar">
       <div class="filters" id="app-filters"><button class="fb on" onclick="setAppF('ALL',this)">All</button></div>
       <div class="vis-pills">
@@ -591,14 +488,9 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
       </div>
     </div>
 
-    <!-- My Notes tab -->
-    <div id="tab-mine" class="tab-panel active">
-      <div id="sec-my"></div>
-    </div>
-    <!-- Community tab -->
-    <div id="tab-community" class="tab-panel">
-      <div id="sec-community"></div>
-    </div>
+    <div id="tab-mine" class="tab-panel active"><div id="sec-my"></div></div>
+    <div id="tab-community" class="tab-panel"><div id="sec-community"></div></div>
+    <div id="tab-shared" class="tab-panel"><div id="sec-shared"></div></div>
   </main>
 </div>
 
@@ -639,7 +531,6 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
     </div>
   </div>
 </div>
-<!-- Hidden file input for edit modal image replacement -->
 <input type="file" accept="image/*" id="ef-fi" onchange="onEditFile(event)">
 
 <!-- IMAGE LIGHTBOX -->
@@ -666,8 +557,7 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
   <div class="ai-chat-feed" id="ai-chat-feed"></div>
   <div class="ai-quick-prompts" id="ai-quick-prompts"></div>
   <div class="ai-chat-input-wrap">
-    <textarea class="ai-chat-input" id="ai-chat-input"
-      placeholder="Mag-instruct sa AI... (Enter para send)"></textarea>
+    <textarea class="ai-chat-input" id="ai-chat-input" placeholder="Mag-instruct sa AI... (Enter para send)"></textarea>
     <button class="ai-chat-send" id="ai-chat-send" onclick="sendAIChat()">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
     </button>
@@ -683,11 +573,8 @@ let appFilt='ALL',searchQ='',visFilt='all';
 let b64=null,noteVisibility='public';
 let deferredPrompt=null;
 let aiMemory={};
-let mainTab='mine'; // 'mine' | 'community'
+let mainTab='mine';
 
-// ============================================================
-// AUTHOR DETECTION
-// ============================================================
 function isMyNote(n){
   const user=window._currentUser;
   if(!user||!n.author)return false;
@@ -695,9 +582,6 @@ function isMyNote(n){
   return n.author===e||n.author===(user.displayName||'')||n.author===e.split('@')[0];
 }
 
-// ============================================================
-// AI MEMORY
-// ============================================================
 async function loadAIMemory(){
   if(!window._db||!window._ref||!window._get)return;
   try{
@@ -731,20 +615,11 @@ function buildMemoryContext(){
   const rules=sorted.filter(e=>e.categoryRule);
   const topics=sorted.filter(e=>!e.categoryRule);
   let ctx='';
-  if(rules.length){
-    ctx+='\n\nCATEGORY RULES (SUNDIN MO PALAGI — user preference ito):\n';
-    ctx+=rules.map(e=>`• [${e.category}] ${e.title}: ${e.categoryRule}`).join('\n');
-  }
-  if(topics.length){
-    ctx+='\n\nLEARNED CONTEXT:\n';
-    ctx+=topics.map(e=>`[${e.category}] ${e.title}: ${e.summary||''}${(e.keyPoints||[]).length?' \u2192 '+(e.keyPoints||[]).join(' | '):''}`).join('\n');
-  }
+  if(rules.length){ctx+='\n\nCATEGORY RULES:\n';ctx+=rules.map(e=>`• [${e.category}] ${e.title}: ${e.categoryRule}`).join('\n');}
+  if(topics.length){ctx+='\n\nLEARNED CONTEXT:\n';ctx+=topics.map(e=>`[${e.category}] ${e.title}: ${e.summary||''}`).join('\n');}
   return ctx;
 }
 
-// ============================================================
-// CATEGORY CONFIG
-// ============================================================
 const knownCats={
   IT:{stripe:'linear-gradient(90deg,#3b82f6,#60a5fa)',pill:'cIT',emoji:'💻'},
   STUDY:{stripe:'linear-gradient(90deg,#22d3ee,#67e8f9)',pill:'cSTUDY',emoji:'📚'},
@@ -761,50 +636,18 @@ function getCatStripe(cat){return getCatStyle(cat).stripe;}
 function getCatPill(cat){const s=getCatStyle(cat);return s.pill?`class="cpill ${s.pill}"`:`class="cpill" style="${s.pillStyle}"`;}
 function getCatEmoji(cat){return getCatStyle(cat).emoji||'🏷️';}
 
-// ============================================================
-// AI PROMPT
-// ============================================================
 function buildSysPrompt(){
-  return`Ikaw ay isang expert notes organizer. Mag-return ng PURE JSON ONLY — walang markdown backticks, walang preamble, walang extra text.
-
-STRICT RULES:
-1. "title" — REQUIRED. Specific, max 8 words. HUWAG gumamit ng "Walang Laman", "Untitled", o generic na title.
-2. "summary" — REQUIRED. 1-2 sentences. Actual takeaway.
-3. "keyPoints" — REQUIRED. 3-5 items. 3-7 words lang bawat isa.
-4. "organizedContent" — organized version ng notes. Walang obvious definitions.
-5. HUWAG mag-hallucinate.
-6. CATEGORY RULES — kung may nakalagay na CATEGORY RULES sa ibaba, SUNDIN MO PALAGI. Priority sila kaysa sa default categorization.
-
-JSON FORMAT:
-{
-  "title": "...",
-  "category": "IT|STUDY|FREELANCE|CRYPTO|PERSONAL|HEALTH|BUSINESS|DESIGN|FOOD|FINANCE|SCIENCE|ART|OTHER",
-  "summary": "...",
-  "keyPoints": ["...", "...", "..."],
-  "organizedContent": "..."
-}${buildMemoryContext()}`;
+  return`Ikaw ay isang expert notes organizer. Mag-return ng PURE JSON ONLY — walang markdown backticks, walang preamble, walang extra text.\n\nSTRICT RULES:\n1. "title" — REQUIRED. Specific, max 8 words.\n2. "summary" — REQUIRED. 1-2 sentences.\n3. "keyPoints" — REQUIRED. 3-5 items.\n4. "organizedContent" — organized version.\n5. HUWAG mag-hallucinate.\n\nJSON FORMAT:\n{\n  "title": "...",\n  "category": "IT|STUDY|FREELANCE|CRYPTO|PERSONAL|HEALTH|BUSINESS|DESIGN|FOOD|FINANCE|SCIENCE|ART|OTHER",\n  "summary": "...",\n  "keyPoints": ["...", "...", "..."],\n  "organizedContent": "..."\n}${buildMemoryContext()}`;
 }
 
-// ============================================================
-// COMPOSER INPUT HANDLERS
-// ============================================================
-function autoGrow(el){
-  // Keep textarea growing naturally on desktop; on mobile it's fixed height
-  el.style.height='auto';
-  el.style.height=Math.min(el.scrollHeight,320)+'px';
-}
-
+function autoGrow(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,320)+'px';}
 function onFile(e){const f=e.target.files[0];if(f)loadImg(f);}
-
 function loadImg(file){
   const r=new FileReader();
   r.onload=ev=>{
     b64=ev.target.result.split(',')[1];
-    // Set chip thumbnail
     document.getElementById('chipImg').src=ev.target.result;
-    // Show chip strip
     document.getElementById('chipStrip').classList.add('show');
-    // Attach lightbox click to chip
     document.getElementById('imgChip').onclick=function(e){
       if(e.target.classList.contains('img-chip-rm'))return;
       openLightbox(ev.target.result);
@@ -813,7 +656,6 @@ function loadImg(file){
   };
   r.readAsDataURL(file);
 }
-
 function clearImg(e){
   if(e)e.stopPropagation();
   b64=null;
@@ -821,8 +663,6 @@ function clearImg(e){
   document.getElementById('chipStrip').classList.remove('show');
   document.getElementById('fi').value='';
 }
-
-// Drag-and-drop onto the composer box
 const composerBox=document.getElementById('composer-box');
 composerBox.addEventListener('dragover',e=>{e.preventDefault();composerBox.style.borderColor='var(--a)';});
 composerBox.addEventListener('dragleave',()=>composerBox.style.borderColor='');
@@ -831,14 +671,9 @@ composerBox.addEventListener('drop',e=>{
   const f=e.dataTransfer.files[0];
   if(f?.type.startsWith('image/'))loadImg(f);
 });
-
-// Clipboard paste — image OR text
 document.addEventListener('paste',e=>{
   for(const item of e.clipboardData?.items||[]){
-    if(item.type.startsWith('image/')){
-      const f=item.getAsFile();if(!f)continue;
-      loadImg(f);break;
-    }
+    if(item.type.startsWith('image/')){const f=item.getAsFile();if(!f)continue;loadImg(f);break;}
   }
 });
 function setVisibility(v){
@@ -854,32 +689,23 @@ function setVisFilt(v,btn){
   else btn.classList.add('on-priv');
   renderApp();
 }
-
 function switchMainTab(tab,btn){
   mainTab=tab;
   document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   const tp=document.getElementById('tab-'+tab);if(tp)tp.classList.add('active');
+  if(tab==='shared' && typeof renderSharedWithMe==='function') renderSharedWithMe();
 }
 
-// ============================================================
-// PROCESS
-// ============================================================
 async function process(){
   if(!window._currentUser){showToast('⚠️ Log in first!');return;}
   const text=document.getElementById('txtArea').value.trim();
   const hasImg=!!b64;
-  const hasText=!!text;
-  if(!hasText&&!hasImg)return showToast('⚠️ Mag-sulat ng notes o mag-attach ng image!');
-  if(hasImg){
-    // Pass text along as extra context if present
-    await callGroqVision(b64,text);
-  }else{
-    await callGroq(text);
-  }
+  if(!text&&!hasImg)return showToast('⚠️ Mag-sulat ng notes o mag-attach ng image!');
+  if(hasImg){await callGroqVision(b64,text);}else{await callGroq(text);}
 }
-function setLoading(on,msg='AI is thinking...'){
+function setLoading(on,msg='AI is organizing...'){
   const btn=document.getElementById('pb'),bar=document.getElementById('lbar');
   btn.disabled=on;btn.style.display=on?'none':'flex';bar.classList.toggle('on',on);
   document.getElementById('lbar-txt').textContent=msg;
@@ -897,8 +723,7 @@ async function callGroq(text){
     if(start!==-1&&end!==-1)raw=raw.slice(start,end+1);
     const p=JSON.parse(raw);
     await saveNote(p,'text',text);
-    document.getElementById('txtArea').value='';
-    document.getElementById('txtArea').style.height='';
+    document.getElementById('txtArea').value='';document.getElementById('txtArea').style.height='';
     showToast(`✦ Saved [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   }catch(err){console.error(err);showToast('⚠️ '+err.message);}
   setLoading(false);
@@ -906,25 +731,13 @@ async function callGroq(text){
 async function callGroqVision(imgB64,extraText=''){
   setLoading(true,'AI is reading image...');
   try{
-    // Vision model: system prompt as text block + image + user text context
-    const textBlock=extraText
-      ?`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image. May dagdag na text context ang user:\n\n${extraText}`
-      :`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image. Return PURE JSON only.`;
-    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      model:'meta-llama/llama-4-scout-17b-16e-instruct',
-      max_tokens:1800,
-      messages:[{role:'user',content:[
-        {type:'text',text:textBlock},
-        {type:'image_url',image_url:{url:`data:image/jpeg;base64,${imgB64}`}}
-      ]}]
-    })});
+    const textBlock=extraText?`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image. May dagdag na text context:\n\n${extraText}`:`${buildSysPrompt()}\n\nBasahin at i-organize ang notes sa image. Return PURE JSON only.`;
+    const res=await fetch(GROQ_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'meta-llama/llama-4-scout-17b-16e-instruct',max_tokens:1800,messages:[{role:'user',content:[{type:'text',text:textBlock},{type:'image_url',image_url:{url:`data:image/jpeg;base64,${imgB64}`}}]}]})});
     const data=await res.json();
     if(data.error)throw new Error(data.error.message||JSON.stringify(data.error));
     const content=data.choices?.[0]?.message?.content;
     if(!content)throw new Error('Empty response from AI');
-    // Strip markdown fences and find JSON robustly
     let raw=content.replace(/```json|```/g,'').trim();
-    // Find first { to last } in case model adds preamble
     const start=raw.indexOf('{');const end=raw.lastIndexOf('}');
     if(start!==-1&&end!==-1)raw=raw.slice(start,end+1);
     const p=JSON.parse(raw);
@@ -932,8 +745,7 @@ async function callGroqVision(imgB64,extraText=''){
     await saveNote(p,'img',extraText||'[image]');
     window._pendingImgB64=null;
     clearImg();
-    document.getElementById('txtArea').value='';
-    document.getElementById('txtArea').style.height='';
+    document.getElementById('txtArea').value='';document.getElementById('txtArea').style.height='';
     showToast(`✦ Image saved [${p.category}] · ${noteVisibility==='public'?'🌐 Public':'🔒 Private'}`);
   }catch(err){console.error(err);showToast('⚠️ '+err.message);}
   setLoading(false);
@@ -941,20 +753,7 @@ async function callGroqVision(imgB64,extraText=''){
 async function saveNote(p,source,rawNote=''){
   function ensureStr(v){if(v==null)return'';if(typeof v==='string')return v;if(typeof v==='object')return Object.entries(v).map(([k,val])=>k+': '+val).join('\n');return String(v);}
   function ensureArr(v){if(Array.isArray(v))return v.map(ensureStr).filter(Boolean);if(typeof v==='string'&&v)return[v];return[];}
-  const note={
-    id:Date.now(),
-    title:ensureStr(p.title)||'Untitled',
-    category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),
-    summary:ensureStr(p.summary),
-    keyPoints:ensureArr(p.keyPoints),
-    organizedContent:ensureStr(p.organizedContent),
-    rawNote:rawNote||'',
-    source,
-    isPublic:noteVisibility==='public',
-    date:new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}),
-    author:window._currentUser?.displayName||window._currentUser?.email||'Anonymous',
-    imageData:source==='img'?(window._pendingImgB64||''):'',
-  };
+  const note={id:Date.now(),title:ensureStr(p.title)||'Untitled',category:(ensureStr(p.category)||'OTHER').toUpperCase().replace(/\s+/g,'_'),summary:ensureStr(p.summary),keyPoints:ensureArr(p.keyPoints),organizedContent:ensureStr(p.organizedContent),rawNote:rawNote||'',source,isPublic:noteVisibility==='public',date:new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}),author:window._currentUser?.displayName||window._currentUser?.email||'Anonymous',imageData:source==='img'?(window._pendingImgB64||''):'',};
   if(window._db&&window._push&&window._ref){
     try{await window._push(window._ref(window._db,'notes'),note);}
     catch(e){console.error(e);window.allNotes.unshift(note);renderApp();}
@@ -966,7 +765,7 @@ async function saveNote(p,source,rawNote=''){
   document.getElementById('vfAll')?.classList.add('on-all');
   await updateAIMemory(note);
 }
-// ============================================================
+
 async function toggleNoteVisibility(fbKey,currentIsPublic,e){
   if(e)e.stopPropagation();
   const newVal=!currentIsPublic;
@@ -980,12 +779,8 @@ async function toggleNoteVisibility(fbKey,currentIsPublic,e){
   }
 }
 
-// ============================================================
-// DELETE
-// ============================================================
 async function delNote(fbKey,id,e){
   if(e)e.stopPropagation();
-  // Hard ownership guard — even if called directly
   const _n=window.allNotes.find(x=>(x.fbKey===fbKey||String(x.id)===String(id)));
   if(_n&&!isMyNote(_n)){showToast('⚠️ Hindi mo ma-delete ang notes ng iba.');return;}
   if(!confirm('Delete this note?'))return;
@@ -996,9 +791,6 @@ async function delNote(fbKey,id,e){
   }else{window.allNotes=window.allNotes.filter(n=>n.id!==id);renderApp();showToast('🗑️ Deleted');}
 }
 
-// ============================================================
-// RENDER — My Notes + Community Notes separated
-// ============================================================
 function buildAppFilters(){
   const cats=[...new Set(window.allNotes.map(n=>n.category).filter(Boolean))].sort();
   const wrap=document.getElementById('app-filters');
@@ -1014,14 +806,12 @@ function buildAppFilters(){
 
 function buildCard(n,mine){
   const isPub=n.isPublic===true;
-  const thumb=n.source==='img'&&n.imageData
-    ?`<div style="margin:-18px -18px 14px;border-bottom:1px solid var(--border);overflow:hidden;border-radius:var(--r) var(--r) 0 0"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;height:90px;object-fit:cover;display:block" loading="lazy"></div>`
-    :'';
-  const badge=mine
-    ?`<span class="vis-badge ${isPub?'pub':'priv'} toggle" title="Toggle visibility" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">${isPub?'🌐':'🔒'}</span>`
-    :'';
+  const thumb=n.source==='img'&&n.imageData?`<div style="margin:-18px -18px 14px;border-bottom:1px solid var(--border);overflow:hidden;border-radius:var(--r) var(--r) 0 0"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;height:90px;object-fit:cover;display:block" loading="lazy"></div>`:'';
+  const badge=mine?`<span class="vis-badge ${isPub?'pub':'priv'} toggle" title="Toggle visibility" onclick="toggleNoteVisibility('${n.fbKey||''}',${isPub},event)">${isPub?'🌐':'🔒'}</span>`:'';
+  // Share button only for my notes
+  const shareBtn=mine?`<button class="anc-btn share-b" onclick="event.stopPropagation();openShareModal('${n.fbKey||''}')" title="Share">🔗</button>`:'';
   const btns=mine
-    ?`<button class="anc-btn edit-b" onclick="event.stopPropagation();openEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
+    ?`${shareBtn}<button class="anc-btn edit-b" onclick="event.stopPropagation();openEdit('${n.fbKey||n.id}')">✏️</button><button class="anc-btn del" onclick="event.stopPropagation();delNote('${n.fbKey||''}',${n.id},event)">🗑️</button>`
     :'';
   return`<div class="anc${mine?'':' community'}" onclick="openView('${n.fbKey||n.id}')">
     <div class="nc-stripe" style="background:${getCatStripe(n.category)}"></div>
@@ -1050,7 +840,6 @@ function renderApp(){
   const myNotes=list.filter(n=>isMyNote(n));
   const community=list.filter(n=>!isMyNote(n)&&n.isPublic===true);
 
-  // Update tab counts
   const mc=document.getElementById('mtab-mine-cnt');const cc=document.getElementById('mtab-com-cnt');
   if(mc)mc.textContent=myNotes.length?myNotes.length:'';
   if(cc)cc.textContent=community.length?community.length:'';
@@ -1069,6 +858,9 @@ function renderApp(){
   }else{
     secCom.innerHTML=`<div class="app-grid">${community.map(n=>buildCard(n,false)).join('')}</div>`;
   }
+
+  // Refresh shared tab if active
+  if(mainTab==='shared' && typeof renderSharedWithMe==='function') renderSharedWithMe();
 }
 
 function str(v){if(v==null)return'';if(typeof v==='string')return v;if(Array.isArray(v))return v.map(str).join('\n');if(typeof v==='object')return JSON.stringify(v);return String(v);}
@@ -1093,13 +885,12 @@ function displaySummary(n){
 }
 function setAppF(f,btn){appFilt=f;document.querySelectorAll('#app-filters .fb').forEach(b=>b.classList.remove('on'));btn.classList.add('on');renderApp();}
 function doSearch(v){searchQ=v.toLowerCase();renderApp();}
-
-
-// ============================================================
-// UTILS
-// ============================================================
 function doSignOut(){if(!confirm('Sign out?'))return;window._signOut().then(()=>window.location.href='index.html');}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200);}
+
+/* Lightbox */
+function openLightbox(src){const lb=document.getElementById('lightbox');const lbi=document.getElementById('lightbox-img');if(lb&&lbi){lbi.src=src;lb.classList.add('on');}}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('on');}
 
 /* PWA */
 function showStrip(){document.getElementById('install-strip').classList.add('show');}
@@ -1121,9 +912,8 @@ if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(
 renderApp();
 </script>
 
-<!-- Modal logic lives in app-modals.js -->
 <script src="app-modals.js"></script>
-<!-- AI Instructor FAB lives in app-ai.js -->
 <script src="app-ai.js"></script>
+<script src="app-friends.js"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+  import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
 
   async function initFirebase() {
     try {
@@ -20,11 +21,27 @@
       const { firebase } = await res.json();
       const app = initializeApp(firebase);
       const auth = getAuth(app);
-      window._auth = auth;
-      window._signIn = (e,p) => signInWithEmailAndPassword(auth,e,p);
-      window._signUp = (e,p,n) => createUserWithEmailAndPassword(auth,e,p).then(r=>updateProfile(r.user,{displayName:n}).then(()=>r));
+      const db = getDatabase(app);
 
-      // If already logged in, redirect to app
+      window._auth = auth;
+      window._db = db;
+
+      window._signIn = (e, p) => signInWithEmailAndPassword(auth, e, p);
+
+      // Signup: create auth user + register in /users collection
+      window._signUp = async (e, p, n) => {
+        const r = await createUserWithEmailAndPassword(auth, e, p);
+        await updateProfile(r.user, { displayName: n });
+        // Register in Realtime DB /users so others can search
+        await update(ref(db, 'users/' + r.user.uid), {
+          uid: r.user.uid,
+          displayName: n,
+          email: e,
+          createdAt: Date.now(),
+        });
+        return r;
+      };
+
       onAuthStateChanged(auth, user => {
         if (user) { window.location.href = 'app.html'; }
       });
@@ -51,7 +68,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 .orb2{width:500px;height:500px;background:radial-gradient(circle,rgba(34,211,238,0.04) 0%,transparent 70%);bottom:-150px;left:-100px;animation:orb 18s ease-in-out infinite alternate-reverse}
 @keyframes orb{from{transform:translate(0,0) scale(1)}to{transform:translate(40px,-30px) scale(1.1)}}
 
-/* INSTALL STRIP */
 #install-strip{display:none;position:fixed;top:0;left:0;right:0;z-index:200;background:linear-gradient(90deg,#0d1f4e,#0c1022);border-bottom:1px solid var(--border-h);padding:10px 16px;align-items:center;justify-content:space-between;gap:10px;animation:slideDown 0.4s cubic-bezier(0.34,1.56,0.64,1)}
 #install-strip.show{display:flex}
 @keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
@@ -63,7 +79,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 .s-dismiss{background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text-m);font-size:11px;font-weight:600;padding:5px 10px;cursor:pointer;font-family:'Outfit',sans-serif}
 .s-install{background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;border-radius:7px;color:#fff;font-size:12px;font-weight:700;padding:6px 14px;cursor:pointer;font-family:'Outfit',sans-serif;white-space:nowrap}
 
-/* NAV */
 .nav{position:sticky;top:0;z-index:100;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:rgba(5,8,16,0.92);backdrop-filter:blur(28px);border-bottom:1px solid var(--border)}
 .logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;color:var(--text-b);letter-spacing:-0.5px;text-decoration:none}
 .logo-mark{width:30px;height:30px;background:linear-gradient(135deg,#3b82f6,#22d3ee);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 18px rgba(59,130,246,0.4);animation:lgo 3s ease-in-out infinite}
@@ -71,9 +86,7 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 .back-btn{padding:7px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:all 0.2s}
 .back-btn:hover{border-color:var(--border-h);color:var(--text-b)}
 
-/* AUTH CONTENT */
 .auth-main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:clamp(24px,5vw,52px) 20px;position:relative;z-index:1}
-
 .auth-box{background:var(--surface);border:1px solid var(--border-h);border-radius:20px;padding:clamp(24px,5vw,36px);width:100%;max-width:420px;box-shadow:0 24px 80px rgba(0,0,0,0.5);animation:authIn 0.4s cubic-bezier(0.34,1.56,0.64,1)}
 @keyframes authIn{from{opacity:0;transform:translateY(20px) scale(0.95)}to{opacity:1;transform:none}}
 
@@ -109,7 +122,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 <div class="orb orb1"></div>
 <div class="orb orb2"></div>
 
-<!-- INSTALL STRIP -->
 <div id="install-strip">
   <div class="s-left">
     <div class="s-icon">✦</div>
@@ -124,7 +136,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
   </div>
 </div>
 
-<!-- NAV -->
 <nav class="nav">
   <a class="logo" href="index.html">
     <div class="logo-mark">✦</div>
@@ -133,7 +144,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
   <a class="back-btn" href="index.html">← Back</a>
 </nav>
 
-<!-- AUTH MAIN -->
 <main class="auth-main">
   <div class="auth-box">
     <div class="auth-logo">
@@ -149,7 +159,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
       <button class="auth-tab" id="tab-signup" onclick="authSwitch('signup')">Sign Up</button>
     </div>
 
-    <!-- LOGIN FORM -->
     <div id="form-login">
       <div class="field">
         <label>Email</label>
@@ -162,7 +171,6 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
       <button class="auth-btn" id="li-btn" onclick="doLogin()">Log In →</button>
     </div>
 
-    <!-- SIGNUP FORM -->
     <div id="form-signup" style="display:none">
       <div class="field">
         <label>Display Name</label>
@@ -203,7 +211,7 @@ async function doLogin() {
   const btn = document.getElementById('li-btn');
   btn.disabled=true; btn.textContent='Logging in...';
   try {
-    await window._signIn(e,p);
+    await window._signIn(e, p);
     showToast('✦ Welcome back!');
     setTimeout(()=>window.location.href='app.html', 400);
   } catch(err) { showErr(friendlyErr(err.code)); }
@@ -219,7 +227,7 @@ async function doSignup() {
   const btn = document.getElementById('su-btn');
   btn.disabled=true; btn.textContent='Creating account...';
   try {
-    await window._signUp(e,p,n);
+    await window._signUp(e, p, n);
     showToast('✦ Welcome, '+n+'!');
     setTimeout(()=>window.location.href='app.html', 400);
   } catch(err) { showErr(friendlyErr(err.code)); }
@@ -230,19 +238,24 @@ function showErr(msg) {
   const el = document.getElementById('auth-err');
   el.textContent=msg; el.style.display='block';
 }
-
 function friendlyErr(code) {
-  const map = {'auth/user-not-found':'No account with that email','auth/wrong-password':'Wrong password','auth/email-already-in-use':'Email already in use','auth/invalid-email':'Invalid email address','auth/weak-password':'Password too weak (min 6 chars)','auth/too-many-requests':'Too many attempts. Try again later.','auth/invalid-credential':'Invalid email or password'};
+  const map = {
+    'auth/user-not-found':'No account with that email',
+    'auth/wrong-password':'Wrong password',
+    'auth/email-already-in-use':'Email already in use',
+    'auth/invalid-email':'Invalid email address',
+    'auth/weak-password':'Password too weak (min 6 chars)',
+    'auth/too-many-requests':'Too many attempts. Try again later.',
+    'auth/invalid-credential':'Invalid email or password'
+  };
   return map[code]||'Error: '+code;
 }
-
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent=msg; t.style.display='block';
   clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none',3000);
 }
 
-/* PWA */
 function showStrip(){ document.getElementById('install-strip').classList.add('show'); }
 function hideStrip(){ document.getElementById('install-strip').classList.remove('show'); }
 window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredPrompt=e; if(!sessionStorage.getItem('installDismissed')) showStrip(); });
@@ -251,7 +264,11 @@ async function installApp(){
   else{ showToast(/iPhone|iPad|iPod/i.test(navigator.userAgent)?'📲 Tap Share → Add to Home Screen':'📲 Open browser menu → Install App'); setTimeout(hideStrip,500); }
 }
 function dismissInstall(){ sessionStorage.setItem('installDismissed','1'); hideStrip(); }
-(function(){ const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent); const isStandalone=window.matchMedia('(display-mode:standalone)').matches||navigator.standalone; if(isMobile&&!isStandalone&&!sessionStorage.getItem('installDismissed')) setTimeout(showStrip,1500); })();
+(function(){
+  const isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const isStandalone=window.matchMedia('(display-mode:standalone)').matches||navigator.standalone;
+  if(isMobile&&!isStandalone&&!sessionStorage.getItem('installDismissed')) setTimeout(showStrip,1500);
+})();
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
