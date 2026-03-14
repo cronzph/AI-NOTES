@@ -113,35 +113,24 @@ async function handleSameOrigin(req) {
     }
 
     // Return offline page
-    return new Response(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Offline — Notes AI</title>
-        <style>
-          body{margin:0;background:#050810;color:#7a9ac7;font-family:'Outfit',sans-serif;
-            display:flex;flex-direction:column;align-items:center;justify-content:center;
-            min-height:100vh;text-align:center;padding:20px}
-          h1{color:#ddeeff;font-size:28px;font-weight:900;margin-bottom:12px}
-          p{font-size:14px;line-height:1.7;max-width:300px;margin-bottom:24px}
-          button{background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;
-            border-radius:12px;color:#fff;font-size:14px;font-weight:700;
-            padding:12px 28px;cursor:pointer;font-family:'Outfit',sans-serif}
-        </style>
-      </head>
-      <body>
-        <div style="font-size:48px;margin-bottom:16px">📴</div>
-        <h1>You're Offline</h1>
-        <p>Open the app while connected to the internet first para ma-enable ang offline mode.</p>
-        <button onclick="location.reload()">Try Again</button>
-      </body>
-      </html>
-    `, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' }
-    });
+    return new Response(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<title>Offline</title>' +
+      '<style>body{margin:0;background:#050810;color:#7a9ac7;font-family:sans-serif;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+      'min-height:100vh;text-align:center;padding:20px}' +
+      'h2{color:#ddeeff;margin-bottom:12px}' +
+      'p{font-size:14px;max-width:300px;margin-bottom:20px;line-height:1.6}' +
+      'button{background:#3b82f6;border:none;border-radius:10px;color:#fff;' +
+      'font-size:14px;padding:12px 24px;cursor:pointer}</style></head>' +
+      '<body><div style="font-size:48px;margin-bottom:16px">📴</div>' +
+      '<h2>You're Offline</h2>' +
+      '<p>Buksan muna ang app habang may internet para ma-enable ang offline mode.</p>' +
+      '<button onclick="location.reload()">Try Again</button>' +
+      '</body></html>',
+      { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
   }
 }
 
@@ -155,7 +144,7 @@ async function cacheFirst(req) {
     if (res.ok) cache.put(req, res.clone());
     return res;
   } catch(e) {
-    return new Response('', { status: 503 });
+    return new Response('Offline', { status: 503, headers: {'Content-Type':'text/plain'} });
   }
 }
 
