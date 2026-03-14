@@ -1,11 +1,13 @@
-export default function handler(req, res) {
+// API endpoint to return Firebase config
+// Vercel automatically provides env vars from .env.local when running `vercel dev`
+
+export default async function handler(req, res) {
   // Only allow GET
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   // Return Firebase public config (these are safe to expose to browser)
-  // but keeping them in env vars so they're not hardcoded in source code
   res.status(200).json({
     firebase: {
       apiKey: process.env.FIREBASE_API_KEY,

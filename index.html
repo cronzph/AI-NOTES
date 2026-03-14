@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#050810">
 <meta name="description" content="Notes AI by CRONZPH — AI-powered notes organizer">
@@ -21,17 +23,24 @@
   async function initFirebase() {
     try {
       const res = await fetch('/api/config');
-      if (!res.ok) throw new Error('Config fetch failed');
-      const { firebase } = await res.json();
+      if (!res.ok) throw new Error('Config fetch failed: ' + res.status);
+      const json = await res.json();
+      // Support any shape: {firebase:{apiKey}}, {apiKey}, or nested
+      const firebase = json?.firebase?.apiKey ? json.firebase
+                     : json?.apiKey            ? json
+                     : json?.config?.apiKey    ? json.config
+                     : Object.values(json||{}).find(v => v?.apiKey) || null;
+      if (!firebase) { console.warn('Config received:', JSON.stringify(json)); throw new Error('No apiKey found in config'); }
       const app = initializeApp(firebase);
-      const db = getDatabase(app);
+      const db  = getDatabase(app);
       const auth = getAuth(app);
       window._auth = auth;
 
       onAuthStateChanged(auth, user => {
         window._currentUser = user;
         if (user) {
-          document.getElementById('pub-sub').textContent = 'Logged in as ' + (user.displayName || user.email);
+          const name = user.displayName || user.email || 'User';
+          document.getElementById('pub-sub').textContent = 'Logged in as ' + name;
           document.getElementById('pub-add-btn').style.display = 'flex';
           document.getElementById('nav-login').style.display = 'none';
           document.getElementById('nav-app').style.display = 'flex';
@@ -42,15 +51,18 @@
       onValue(notesRef, snap => {
         const data = snap.val();
         const all = data
-          ? Object.entries(data).map(([fbKey,v]) => ({fbKey,...v})).sort((a,b) => b.id - a.id)
+          ? Object.entries(data).map(([fbKey,v]) => ({fbKey,...v})).sort((a,b) => (b.id||0)-(a.id||0))
           : [];
         window.allNotes = all.filter(n => n.isPublic === true);
         renderPub();
+      }, err => {
+        console.warn('Firebase read:', err.code || err.message);
+        window.allNotes = []; renderPub();
       });
+
     } catch(err) {
-      console.error(err);
-      window.allNotes = [];
-      renderPub();
+      console.warn('Firebase unavailable:', err.message);
+      window.allNotes = []; renderPub();
     }
   }
   initFirebase();
@@ -157,24 +169,16 @@ body.has-strip{--strip-h:50px}
 .nc-summary{font-size:12.5px;color:var(--text);line-height:1.6;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .nc-foot{display:flex;align-items:center;justify-content:space-between;padding-top:10px;margin-top:10px;border-top:1px solid var(--border)}
 .nc-src{font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:4px}
-.nc-pub-badge{
-  display:inline-flex;align-items:center;gap:4px;
-  font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;
-  background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2);
-  padding:2px 7px;border-radius:5px;letter-spacing:0.5px;
-}
+.nc-pub-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2);padding:2px 7px;border-radius:5px;letter-spacing:0.5px}
 .empty{grid-column:1/-1;padding:70px 20px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
 .empty-ico{font-size:40px;opacity:0.15}
 .empty-t{font-size:18px;font-weight:800;color:var(--text-m)}
 .empty-s{font-size:12px;color:var(--text-m);opacity:0.5}
 
-/* ============================================================
-   VIEW MODAL — matches app.html style exactly
-============================================================ */
+/* VIEW MODAL */
 .overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.78);backdrop-filter:blur(14px);display:none;align-items:center;justify-content:center;padding:16px}
 .overlay.on{display:flex}
 @keyframes min{from{opacity:0;transform:scale(0.93) translateY(20px)}to{opacity:1;transform:none}}
-
 .modal-view{background:var(--surface);border:1px solid var(--border-h);border-radius:20px;width:100%;max-width:700px;max-height:91vh;display:flex;flex-direction:column;animation:min 0.28s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 28px 90px rgba(0,0,0,0.65);position:relative}
 .mv-close{position:absolute;top:16px;right:16px;width:32px;height:32px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all 0.2s;color:var(--text-m);z-index:2}
 .mv-close:hover{border-color:var(--red);color:var(--red)}
@@ -188,23 +192,18 @@ body.has-strip{--strip-h:50px}
 .mv-body{flex:1;overflow-y:auto;padding:20px 22px 6px;min-height:0}
 .mv-body::-webkit-scrollbar{width:4px}
 .mv-body::-webkit-scrollbar-thumb{background:var(--border-h);border-radius:2px}
-
-/* Summary & keypoints */
 .vs{margin-bottom:20px}
 .vs-l{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:10px}
 .vs-box{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:15px 16px;font-size:13.5px;color:var(--text-b);line-height:1.8}
 .kp-list{display:flex;flex-direction:column;gap:8px}
 .kp-item{display:flex;gap:10px;font-size:13.5px;color:var(--text-b);line-height:1.6;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 14px}
 .kp-arrow{color:var(--a2);flex-shrink:0;font-weight:700;margin-top:1px}
-
 .mv-foot{padding:13px 22px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;flex-wrap:wrap}
 .mv-foot-r{display:flex;gap:7px}
 .mfbtn{padding:8px 16px;border-radius:var(--rs);font-family:'Outfit',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text-m);text-decoration:none}
 .mfbtn:hover{border-color:var(--border-h);color:var(--text-b)}
 .mfbtn.edit{border-color:rgba(74,222,128,0.3);color:var(--green);background:rgba(74,222,128,0.06)}
 .mfbtn.edit:hover{border-color:var(--green);background:rgba(74,222,128,0.12);transform:translateY(-1px)}
-
-/* CTA for non-logged-in */
 .modal-cta{background:var(--ag);border:1px solid var(--border-h);border-radius:10px;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .modal-cta p{font-size:13px;color:var(--text)}
 .modal-cta b{color:var(--text-b)}
@@ -212,6 +211,10 @@ body.has-strip{--strip-h:50px}
 /* TOAST */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border-h);border-radius:12px;padding:10px 20px;font-size:13px;font-weight:600;color:var(--text-b);z-index:400;display:none;white-space:nowrap;box-shadow:0 10px 40px rgba(0,0,0,0.45);animation:tpop 0.3s cubic-bezier(0.34,1.56,0.64,1)}
 @keyframes tpop{from{opacity:0;transform:translateX(-50%) translateY(12px) scale(0.9)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+
+/* SKELETON LOADER */
+.skel{background:linear-gradient(90deg,var(--surface) 25%,var(--surface2) 50%,var(--surface) 75%);background-size:200% 100%;animation:skel 1.4s ease-in-out infinite;border-radius:8px}
+@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
 /* CATEGORY COLORS */
 .cIT{background:rgba(59,130,246,0.12);color:#60a5fa}
@@ -270,7 +273,7 @@ body.has-strip{--strip-h:50px}
   </div>
 </nav>
 
-<!-- PAGE CONTENT -->
+<!-- PAGE -->
 <div class="page">
 
   <!-- HERO -->
@@ -317,12 +320,17 @@ body.has-strip{--strip-h:50px}
     <div class="filters" id="pub-filters">
       <button class="fb on" onclick="setPubF('ALL',this)">All</button>
     </div>
-    <div class="notes-grid" id="pub-grid"></div>
+    <!-- Skeleton placeholders shown while loading -->
+    <div id="pub-grid" class="notes-grid">
+      <div style="height:180px;border-radius:var(--r)" class="skel"></div>
+      <div style="height:180px;border-radius:var(--r)" class="skel"></div>
+      <div style="height:180px;border-radius:var(--r)" class="skel"></div>
+    </div>
   </div>
 
 </div>
 
-<!-- ===== VIEW MODAL ===== -->
+<!-- VIEW MODAL -->
 <div class="overlay" id="ov-view" onclick="if(event.target===this)closeModal()">
   <div class="modal-view">
     <button class="mv-close" onclick="closeModal()">✕</button>
@@ -351,43 +359,24 @@ let currentViewNote = null;
 let currentViewTab = 'notes';
 let deferredPrompt = null;
 
-// ============================================================
-// CATEGORY HELPERS
-// ============================================================
-const catStripe = {
-  IT:'linear-gradient(90deg,#3b82f6,#60a5fa)',
-  STUDY:'linear-gradient(90deg,#22d3ee,#67e8f9)',
-  FREELANCE:'linear-gradient(90deg,#fbbf24,#fde68a)',
-  CRYPTO:'linear-gradient(90deg,#fb923c,#fed7aa)',
-  PERSONAL:'linear-gradient(90deg,#818cf8,#c4b5fd)',
-  OTHER:'linear-gradient(90deg,#94a3b8,#cbd5e1)',
-};
+// ── Category helpers ─────────────────────────────────────────
+const catStripe={IT:'linear-gradient(90deg,#3b82f6,#60a5fa)',STUDY:'linear-gradient(90deg,#22d3ee,#67e8f9)',FREELANCE:'linear-gradient(90deg,#fbbf24,#fde68a)',CRYPTO:'linear-gradient(90deg,#fb923c,#fed7aa)',PERSONAL:'linear-gradient(90deg,#818cf8,#c4b5fd)',OTHER:'linear-gradient(90deg,#94a3b8,#cbd5e1)'};
 const dynColors=['linear-gradient(90deg,#34d399,#6ee7b7)','linear-gradient(90deg,#f472b6,#fbcfe8)','linear-gradient(90deg,#a78bfa,#ddd6fe)','linear-gradient(90deg,#fb7185,#fda4af)','linear-gradient(90deg,#38bdf8,#bae6fd)'];
 const catCache={};let colorIdx=0;
-function getCatStripe(cat){
-  if(catStripe[cat])return catStripe[cat];
-  if(!catCache[cat]){catCache[cat]=dynColors[colorIdx++%dynColors.length];}
-  return catCache[cat];
-}
+function getCatStripe(cat){if(catStripe[cat])return catStripe[cat];if(!catCache[cat]){catCache[cat]=dynColors[colorIdx++%dynColors.length];}return catCache[cat];}
 const catEmoji={IT:'💻',STUDY:'📚',FREELANCE:'💼',CRYPTO:'₿',PERSONAL:'🙋',OTHER:'📌'};
 function getCatEmoji(cat){return catEmoji[cat]||'🏷️';}
-
 const knownPills={IT:'cIT',STUDY:'cSTUDY',FREELANCE:'cFREELANCE',CRYPTO:'cCRYPTO',PERSONAL:'cPERSONAL',OTHER:'cOTHER'};
 const dynPillStyles=['background:rgba(52,211,153,0.1);color:#34d399','background:rgba(244,114,182,0.1);color:#f472b6','background:rgba(167,139,250,0.1);color:#a78bfa','background:rgba(251,113,133,0.1);color:#fb7185','background:rgba(56,189,248,0.1);color:#38bdf8'];
 const pillCache={};let pillIdx=0;
-function getCatPillAttr(cat){
-  if(knownPills[cat])return`class="cpill ${knownPills[cat]}"`;
-  if(!pillCache[cat]){pillCache[cat]=dynPillStyles[pillIdx++%dynPillStyles.length];}
-  return`class="cpill" style="${pillCache[cat]}"`;
-}
+function getCatPillAttr(cat){if(knownPills[cat])return`class="cpill ${knownPills[cat]}"`;if(!pillCache[cat]){pillCache[cat]=dynPillStyles[pillIdx++%dynPillStyles.length];}return`class="cpill" style="${pillCache[cat]}"}`;}
 
 function str(v){if(v==null)return'';if(typeof v==='string')return v;if(Array.isArray(v))return v.map(str).join('\n');if(typeof v==='object')return JSON.stringify(v);return String(v);}
 function esc(s){return str(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 function displayTitle(n){
   const t=str(n.title).trim();
-  const bad=['','walang laman','untitled','no title'];
-  if(bad.includes(t.toLowerCase())){
+  if(['','walang laman','untitled','no title'].includes(t.toLowerCase())){
     const raw=str(n.rawNote).trim();
     if(raw&&raw!=='[image]')return raw.split('\n')[0].slice(0,60);
   }
@@ -395,19 +384,16 @@ function displayTitle(n){
 }
 function displaySummary(n){
   const kps=Array.isArray(n.keyPoints)?n.keyPoints:[];
-  const firstKP=kps.map(k=>str(k).trim()).find(k=>k.length>0&&k.length<120);
-  if(firstKP)return firstKP;
+  const first=kps.map(k=>str(k).trim()).find(k=>k.length>0&&k.length<120);
+  if(first)return first;
   const s=str(n.summary).trim();
-  const bad=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
-  if(!bad.includes(s.toLowerCase())&&s)return s.slice(0,120);
+  if(!['','walang mahalagang impormasyon','walang laman','no summary','n/a'].includes(s.toLowerCase())&&s)return s.slice(0,120);
   const raw=str(n.rawNote).trim();
   if(raw&&raw!=='[image]'){const lines=raw.split('\n').filter(l=>l.trim());return lines[0].slice(0,100);}
   return'';
 }
 
-// ============================================================
-// RENDER GRID
-// ============================================================
+// ── Render grid ──────────────────────────────────────────────
 function buildFilters(notes){
   const cats=[...new Set(notes.map(n=>n.category).filter(Boolean))].sort();
   const wrap=document.getElementById('pub-filters');
@@ -425,14 +411,16 @@ function renderPub(){
   const g=document.getElementById('pub-grid');if(!g)return;
   buildFilters(window.allNotes);
   let list=pubFilt==='ALL'?[...window.allNotes]:window.allNotes.filter(n=>n.category===pubFilt);
-  document.getElementById('pub-cnt').textContent=`(${window.allNotes.length})`;
+  const cnt=document.getElementById('pub-cnt');
+  if(cnt)cnt.textContent=window.allNotes.length?`(${window.allNotes.length})`:'';
+
   if(!list.length){
     g.innerHTML=`<div class="empty"><div class="empty-ico">🌐</div><div class="empty-t">No public notes yet</div><div class="empty-s">Log in and set a note to Public to share it here</div></div>`;
     return;
   }
   g.innerHTML=list.map(n=>{
     const thumbHtml=n.source==='img'&&n.imageData
-      ?`<div style="margin:-18px -18px 14px;border-bottom:1px solid var(--border);overflow:hidden;border-radius:var(--r) var(--r) 0 0"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;height:90px;object-fit:cover;display:block"></div>`
+      ?`<div style="margin:-18px -18px 14px;border-bottom:1px solid var(--border);overflow:hidden;border-radius:var(--r) var(--r) 0 0"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;height:90px;object-fit:cover;display:block" loading="lazy"></div>`
       :'';
     return`<div class="nc" onclick="openNote('${n.fbKey}')">
       <div class="nc-stripe" style="background:${getCatStripe(n.category)}"></div>
@@ -440,12 +428,12 @@ function renderPub(){
       <div class="nc-top">
         <span ${getCatPillAttr(n.category)}>${getCatEmoji(n.category)} ${n.category}</span>
         <span class="nc-date">${n.date||''}</span>
-        <span class="nc-pub-badge">🌐 Public</span>
+        <span class="nc-pub-badge">🌐</span>
       </div>
       <div class="nc-title">${esc(displayTitle(n))}</div>
       <div class="nc-summary">${esc(displaySummary(n))}</div>
       <div class="nc-foot">
-        <div class="nc-src">${n.source==='img'?'🖼️':'📄'} ${n.source==='img'?'Image':'Text'}${n.author?' · '+esc(n.author):''}</div>
+        <div class="nc-src">${n.source==='img'?'🖼️':'📄'} ${n.author?esc(n.author):''}</div>
       </div>
     </div>`;
   }).join('');
@@ -458,33 +446,25 @@ function setPubF(f,btn){
   renderPub();
 }
 
-// ============================================================
-// VIEW MODAL — 2 tabs, shows raw note + image, edit for owner
-// ============================================================
+// ── View modal ───────────────────────────────────────────────
 function openNote(fbKey){
   const n=window.allNotes.find(x=>x.fbKey===fbKey);if(!n)return;
   currentViewNote=n;currentViewTab='notes';
 
-  // Meta row
   document.getElementById('mv-meta').innerHTML=`
     <span ${getCatPillAttr(n.category)} style="font-size:11px">${getCatEmoji(n.category)} ${n.category}</span>
     <span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.date||''}</span>
     ${n.author?`<span style="font-size:11px;color:var(--text-m)">· ${esc(n.author)}</span>`:''}
     <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;background:rgba(34,211,238,0.1);color:var(--cyan);border:1px solid rgba(34,211,238,0.2);padding:2px 8px;border-radius:5px;">🌐 Public</span>`;
-
   document.getElementById('mv-title').textContent=displayTitle(n);
-
-  // Tabs — reset to Notes tab
   document.getElementById('mvt-notes').classList.add('on');
   document.getElementById('mvt-summary').classList.remove('on');
 
-  // Footer — show Edit button only if logged-in user is the author
   const user=window._currentUser;
-  const isOwner=user&&(user.displayName===n.author||user.email===n.author||user.email.split('@')[0]===n.author);
-  document.getElementById('mv-foot-left').innerHTML=
-    `<span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.source==='img'?'🖼️ Image note':'📄 Text note'}</span>`;
+  const isOwner=user&&(user.displayName===n.author||user.email===n.author||(user.email&&user.email.split('@')[0]===n.author));
+  document.getElementById('mv-foot-left').innerHTML=`<span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.source==='img'?'🖼️ Image note':'📄 Text note'}</span>`;
   document.getElementById('mv-foot-right').innerHTML=isOwner
-    ?`<a href="app.html" class="mfbtn edit">✏️ Edit in App</a>`
+    ?`<a href="app.html" class="mfbtn edit" style="text-decoration:none">✏️ Edit in App</a>`
     :(!user?`<a href="auth.html" class="mfbtn" style="text-decoration:none">Log in to add notes →</a>`:'');
 
   renderViewBody();
@@ -501,117 +481,59 @@ function switchViewTab(t){
 function renderViewBody(){
   const n=currentViewNote;if(!n)return;
   const body=document.getElementById('mv-body');
-
   if(currentViewTab==='notes'){
-    // Image (if saved)
     const imgHtml=n.imageData
       ?`<div style="margin-bottom:14px;border-radius:10px;overflow:hidden;border:1px solid var(--border)"><img src="data:image/jpeg;base64,${n.imageData}" style="width:100%;display:block;max-height:340px;object-fit:contain;background:var(--surface2)"></div>`
       :'';
-
-    // Raw note text — use rawNote first, fall back to organizedContent
     const rawText=str(n.rawNote)||str(n.organizedContent);
     const isEmpty=!rawText.trim()||rawText==='[image]';
-
-    // Copy button
-    const copyBtn=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-      <button onclick="copyNote()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif">
-        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy
-      </button>
-    </div>`;
-
+    const copyBtn=`<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button onclick="copyNote()" style="display:flex;align-items:center;gap:6px;background:var(--ag);border:1px solid var(--border-h);border-radius:8px;color:var(--a2);font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer;font-family:'Outfit',sans-serif"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button></div>`;
     const noteBox=isEmpty
       ?`<div style="color:var(--text-m);font-style:italic;font-size:13px;text-align:center;padding:30px 0">Walang raw text — image note lang ito.</div>`
       :`<div style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.85;color:var(--text-b);background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">${esc(rawText)}</div>`;
-
     body.innerHTML=imgHtml+copyBtn+noteBox;
-
   }else{
-    // Summary & Key Points tab
     let kps=[];
-    if(Array.isArray(n.keyPoints)){kps=n.keyPoints.map(k=>str(k)).filter(k=>k.trim());}
-    else if(n.keyPoints&&typeof n.keyPoints==='object'){kps=Object.values(n.keyPoints).map(str).filter(k=>k.trim());}
-    else if(typeof n.keyPoints==='string'&&n.keyPoints.trim()){kps=[n.keyPoints];}
-
+    if(Array.isArray(n.keyPoints))kps=n.keyPoints.map(k=>str(k)).filter(k=>k.trim());
+    else if(n.keyPoints&&typeof n.keyPoints==='object')kps=Object.values(n.keyPoints).map(str).filter(k=>k.trim());
+    else if(typeof n.keyPoints==='string'&&n.keyPoints.trim())kps=[n.keyPoints];
     const summaryText=str(n.summary).trim();
-    const badSummary=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
-    const summaryDisplay=badSummary.includes(summaryText.toLowerCase())
+    const badS=['','walang mahalagang impormasyon','walang laman','no summary','n/a'];
+    const summaryDisplay=badS.includes(summaryText.toLowerCase())
       ?`<span style="color:var(--text-m);font-style:italic;font-size:13px">Walang summary available.</span>`
       :esc(summaryText);
-
     const kpHtml=kps.length
       ?`<div class="vs"><div class="vs-l">🔑 Key Points</div><div class="kp-list">${kps.map(p=>`<div class="kp-item"><span class="kp-arrow">→</span><span>${esc(p)}</span></div>`).join('')}</div></div>`
-      :`<div class="vs"><div class="vs-l">🔑 Key Points</div><div style="color:var(--text-m);font-style:italic;font-size:13px">Walang key points available.</div></div>`;
-
-    // Login CTA for non-logged-in users
+      :`<div class="vs"><div class="vs-l">🔑 Key Points</div><div style="color:var(--text-m);font-style:italic;font-size:13px">Walang key points.</div></div>`;
     const user=window._currentUser;
     const ctaHtml=!user
       ?`<div class="modal-cta"><p>Gusto mo ring mag-<b>organize ng notes</b>?</p><a href="auth.html" class="btn btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none;flex-shrink:0">Get Started →</a></div>`
       :'';
-
-    body.innerHTML=`
-      <div class="vs"><div class="vs-l">💡 Summary</div><div class="vs-box">${summaryDisplay}</div></div>
-      ${kpHtml}
-      ${ctaHtml}`;
+    body.innerHTML=`<div class="vs"><div class="vs-l">💡 Summary</div><div class="vs-box">${summaryDisplay}</div></div>${kpHtml}${ctaHtml}`;
   }
 }
 
 function copyNote(){
   const n=currentViewNote;if(!n)return;
   const text=str(n.rawNote)||str(n.organizedContent);
-  navigator.clipboard.writeText(text)
-    .then(()=>showToast('Copied!'))
-    .catch(()=>{
-      const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;opacity:0';
-      document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
-      showToast('Copied!');
-    });
+  navigator.clipboard.writeText(text).then(()=>showToast('Copied!')).catch(()=>{
+    const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;opacity:0';
+    document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);showToast('Copied!');
+  });
 }
-
-function closeModal(){
-  document.getElementById('ov-view').classList.remove('on');
-  currentViewNote=null;
-}
+function closeModal(){document.getElementById('ov-view').classList.remove('on');currentViewNote=null;}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
-// ============================================================
-// UTILS
-// ============================================================
-function showToast(msg){
-  const t=document.getElementById('toast');
-  t.textContent=msg;t.style.display='block';
-  clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3000);
-}
+// ── Utils ────────────────────────────────────────────────────
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3000);}
 
-// ============================================================
-// PWA INSTALL
-// ============================================================
-function showStrip(){
-  document.getElementById('install-strip').classList.add('show');
-  document.body.classList.add('has-strip');
-  document.querySelector('.nav').style.top='50px';
-  document.querySelector('.page').style.paddingTop='calc(var(--nav-h) + 50px)';
-}
-function hideStrip(){
-  document.getElementById('install-strip').classList.remove('show');
-  document.body.classList.remove('has-strip');
-  document.querySelector('.nav').style.top='0';
-  document.querySelector('.page').style.paddingTop='var(--nav-h)';
-}
-window.addEventListener('beforeinstallprompt',e=>{
-  e.preventDefault();deferredPrompt=e;
-  if(!sessionStorage.getItem('installDismissed'))showStrip();
-});
+// ── PWA ──────────────────────────────────────────────────────
+function showStrip(){document.getElementById('install-strip').classList.add('show');document.body.classList.add('has-strip');document.querySelector('.nav').style.top='50px';document.querySelector('.page').style.paddingTop='calc(var(--nav-h) + 50px)';}
+function hideStrip(){document.getElementById('install-strip').classList.remove('show');document.body.classList.remove('has-strip');document.querySelector('.nav').style.top='0';document.querySelector('.page').style.paddingTop='var(--nav-h)';}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;if(!sessionStorage.getItem('installDismissed'))showStrip();});
 async function installApp(){
-  if(deferredPrompt){
-    deferredPrompt.prompt();
-    const{outcome}=await deferredPrompt.userChoice;
-    if(outcome==='accepted')showToast('📲 Installing Notes AI!');
-    deferredPrompt=null;hideStrip();
-  }else{
-    const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);
-    showToast(isIOS?'📲 Tap Share → Add to Home Screen':'📲 Open browser menu → Install App');
-    setTimeout(hideStrip,500);
-  }
+  if(deferredPrompt){deferredPrompt.prompt();const{outcome}=await deferredPrompt.userChoice;if(outcome==='accepted')showToast('📲 Installing!');deferredPrompt=null;hideStrip();}
+  else{const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent);showToast(isIOS?'📲 Tap Share → Add to Home Screen':'📲 Open browser menu → Install App');setTimeout(hideStrip,500);}
 }
 function dismissInstall(){sessionStorage.setItem('installDismissed','1');hideStrip();}
 (function(){
@@ -620,7 +542,11 @@ function dismissInstall(){sessionStorage.setItem('installDismissed','1');hideStr
   if(isMobile&&!isStandalone&&!sessionStorage.getItem('installDismissed'))setTimeout(showStrip,1500);
 })();
 window.addEventListener('appinstalled',()=>{showToast('✦ App installed!');hideStrip();});
-if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js')
+    .then(()=>{ console.log('SW registered'); })
+    .catch(()=>{});
+}
 </script>
 </body>
 </html>
