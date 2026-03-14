@@ -1143,17 +1143,32 @@ function dismissInstall(){sessionStorage.setItem('installDismissed','1');hideStr
 window.addEventListener('appinstalled',()=>{showToast('✦ App installed!');hideStrip();});
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').then(reg => {
-    // Listen for background sync trigger from SW
+    console.log('[App] SW registered, scope:', reg.scope);
+
+    // Force new SW to activate immediately on update
+    if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if(!nw) return;
+      nw.addEventListener('statechange', () => {
+        if(nw.state === 'installed' && navigator.serviceWorker.controller) {
+          nw.postMessage({type:'SKIP_WAITING'});
+        }
+      });
+    });
+
+    // Listen for sync trigger from SW
     navigator.serviceWorker.addEventListener('message', e => {
-      if(e.data?.type === 'SYNC_NOTES' && typeof window._syncQueue === 'function') {
+      if(e.data?.type === 'SYNC_NOTES' && typeof window._syncQueue === 'function'){
         window._syncQueue();
       }
     });
-    // Register background sync if supported
-    if('sync' in reg && navigator.onLine) {
+
+    // Register background sync
+    if('sync' in reg && navigator.onLine){
       reg.sync.register('sync-notes').catch(()=>{});
     }
-  }).catch(()=>{});
+  }).catch(err => console.warn('[App] SW registration failed:', err));
 }
 
 renderApp();

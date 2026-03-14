@@ -1,121 +1,158 @@
 // ============================================================
-// sw.js — Notes AI Service Worker
-// Strategy: Cache-first for app shell, network-first for API
+// sw.js — Notes AI Service Worker  v4
+// Strategy: CACHE-FIRST for app shell (works fully offline)
+//           NETWORK-ONLY for /api/ calls
+//           CACHE-FIRST for external fonts/SDK
 // ============================================================
 
-const CACHE_NAME = 'notesai-v3';
-const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
+const CACHE = 'notesai-v4';
 
-// App shell files to cache on install
-const SHELL_FILES = [
-  '/',
-  '/index.html',
+// Everything the app needs to run offline
+const SHELL = [
   '/app.html',
-  '/auth.html',
   '/app-modals.js',
   '/app-ai.js',
   '/app-offline.js',
   '/app-friends.js',
   '/manifest.json',
+  // Google Fonts — cache at runtime on first visit
 ];
 
-// ── Install: cache app shell ─────────────────────────────────
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      // Cache files individually — don't fail install if one is missing
-      return Promise.allSettled(
-        SHELL_FILES.map(url =>
-          cache.add(url).catch(e => console.warn('SW cache miss:', url, e.message))
-        )
-      );
-    }).then(() => self.skipWaiting())
-  );
-});
-
-// ── Activate: clean old caches ───────────────────────────────
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+// ── INSTALL: pre-cache app shell ─────────────────────────────
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(cache =>
+      // addAll fails if ANY file 404s — use individual add with catch
+      Promise.allSettled(
+        SHELL.map(url => cache.add(url).catch(err =>
+          console.warn('[SW] cache miss on install:', url, err.message)
+        ))
       )
-    ).then(() => self.clients.claim())
+    ).then(() => {
+      console.log('[SW] Shell cached, skipping wait');
+      return self.skipWaiting();
+    })
   );
 });
 
-// ── Fetch: smart routing ─────────────────────────────────────
-self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+// ── ACTIVATE: wipe old caches ─────────────────────────────────
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE).map(k => {
+          console.log('[SW] Deleting old cache:', k);
+          return caches.delete(k);
+        })
+      ))
+      .then(() => self.clients.claim())
+  );
+});
 
-  // ── Skip non-GET and non-same-origin ──────────────────────
-  if (event.request.method !== 'GET') return;
-  if (url.origin !== location.origin &&
-      !url.hostname.includes('fonts.googleapis.com') &&
-      !url.hostname.includes('fonts.gstatic.com') &&
-      !url.hostname.includes('gstatic.com')) return;
+// ── FETCH ─────────────────────────────────────────────────────
+self.addEventListener('fetch', e => {
+  const req = e.request;
+  const url = new URL(req.url);
 
-  // ── API calls: network-only, no caching ───────────────────
-  if (url.pathname.startsWith('/api/')) return;
+  // Only handle GET
+  if (req.method !== 'GET') return;
 
-  // ── Firebase SDK: cache with long TTL ────────────────────
-  if (url.hostname.includes('gstatic.com') || url.hostname.includes('googleapis.com')) {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async cache => {
-        const cached = await cache.match(event.request);
-        if (cached) return cached;
-        const res = await fetch(event.request);
-        if (res.ok) cache.put(event.request, res.clone());
-        return res;
-      }).catch(() => caches.match(event.request))
-    );
+  // ── /api/* — NEVER cache, always network ─────────────────
+  if (url.pathname.startsWith('/api/')) return; // let browser handle (will fail offline — that's ok)
+
+  // ── Firebase / Groq SDK JS — cache-first ─────────────────
+  if (
+    url.hostname.includes('gstatic.com') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('firebaseapp.com')
+  ) {
+    e.respondWith(cacheFirst(req));
     return;
   }
 
-  // ── App shell: network-first with cache fallback ──────────
-  event.respondWith(
-    fetch(event.request)
-      .then(res => {
-        // Cache successful responses
-        if (res.ok && res.status < 400) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        }
-        return res;
-      })
-      .catch(async () => {
-        // Network failed — serve from cache
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
+  // ── Google Fonts CSS — cache-first ───────────────────────
+  if (url.hostname === 'fonts.googleapis.com') {
+    e.respondWith(cacheFirst(req));
+    return;
+  }
 
-        // For navigation requests, serve app.html as fallback
-        if (event.request.mode === 'navigate') {
-          const appShell = await caches.match('/app.html');
-          if (appShell) return appShell;
-        }
+  // ── Non-same-origin: skip ────────────────────────────────
+  if (url.origin !== self.location.origin) return;
 
-        // Last resort 404
-        return new Response('Offline — cached version unavailable', {
-          status: 503,
-          headers: { 'Content-Type': 'text/plain' }
-        });
-      })
-  );
+  // ── App shell files — CACHE-FIRST ────────────────────────
+  // This is the key: serve from cache immediately, update in background
+  e.respondWith(cacheFirstWithUpdate(req));
 });
 
-// ── Background sync (if supported) ───────────────────────────
-self.addEventListener('sync', event => {
-  if (event.tag === 'sync-notes') {
-    event.waitUntil(
-      // Notify all clients to attempt sync
-      self.clients.matchAll().then(clients => {
-        clients.forEach(client => client.postMessage({ type: 'SYNC_NOTES' }));
-      })
+// ── Cache-first (pure) ────────────────────────────────────────
+// Return cache if exists, else fetch+cache, else error
+async function cacheFirst(req) {
+  const cached = await caches.match(req);
+  if (cached) return cached;
+  try {
+    const res = await fetch(req);
+    if (res.ok) {
+      const cache = await caches.open(CACHE);
+      cache.put(req, res.clone());
+    }
+    return res;
+  } catch(e) {
+    return new Response('Offline', { status: 503, headers: {'Content-Type':'text/plain'} });
+  }
+}
+
+// ── Cache-first + background update (stale-while-revalidate) ──
+// 1. Serve from cache immediately (fast + works offline)
+// 2. Fetch new version in background and update cache
+async function cacheFirstWithUpdate(req) {
+  const cache  = await caches.open(CACHE);
+  const cached = await cache.match(req);
+
+  // Kick off background fetch regardless
+  const fetchPromise = fetch(req).then(res => {
+    if (res.ok && res.status < 400) {
+      cache.put(req, res.clone());
+    }
+    return res;
+  }).catch(() => null); // silently fail if offline
+
+  // Return cache immediately if we have it
+  if (cached) return cached;
+
+  // No cache yet — wait for network
+  try {
+    const res = await fetchPromise;
+    if (res) return res;
+  } catch(e) {}
+
+  // Both cache and network failed — serve app.html for navigation
+  if (req.mode === 'navigate') {
+    const fallback = await cache.match('/app.html');
+    if (fallback) return fallback;
+  }
+
+  return new Response('Offline — open the app while online first to enable offline access.', {
+    status: 503,
+    headers: { 'Content-Type': 'text/plain' }
+  });
+}
+
+// ── Background sync trigger ───────────────────────────────────
+self.addEventListener('sync', e => {
+  if (e.tag === 'sync-notes') {
+    e.waitUntil(
+      self.clients.matchAll().then(clients =>
+        clients.forEach(c => c.postMessage({ type: 'SYNC_NOTES' }))
+      )
     );
   }
 });
 
-// ── Message from client ───────────────────────────────────────
-self.addEventListener('message', event => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+// ── Message handler ───────────────────────────────────────────
+self.addEventListener('message', e => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  // Client can force cache refresh
+  if (e.data?.type === 'CLEAR_CACHE') {
+    caches.delete(CACHE).then(() => console.log('[SW] Cache cleared'));
+  }
 });
