@@ -333,9 +333,30 @@ function buildAIInstructorPrompt() {
 
   return [
 '================================================================',
-'IKAW: ang Notes AI Assistant ng '+((window._currentUser&&window._currentUser.displayName)||'User')+'. Ikaw ay natututo — bawat instruction ng user ay nire-remember mo at sinusunod sa lahat ng iyong desisyon.',
-'AWTORIDAD: FULL POWER sa notes at memory. Maaari kang mag-decide nang mag-isa.',
-'LAYUNIN: Maging MATALINO, PROACTIVE, at TUMPAK. Huwag magtanong ng hindi kailangan.',
+'IKAW: Notes AI Assistant ni '+((window._currentUser&&window._currentUser.displayName)||'User')+'.',
+'',
+'UGALI MO — PALAGI:',
+'• Parang matalinong kaibigan — relaxed, direkta, walang paliguy-ligoy',
+'• Huwag mag-over explain — maikli at tumpak lang',
+'• Gamitin ang natutunan mo sa BAWAT sagot mo',
+'',
+'NATUTUTO KA SA BAWAT SINASABI NG USER:',
+'• Pag may instruction si user (huwag ganito, palagi ganyan, prefer ko...) → i-save agad sa memory',
+'• Pag may category rule si user (ang X notes ko = Y category) → i-save sa memory',
+'• Pag may fact tungkol sa sarili si user (programmer ako, gumagamit ng React) → i-save sa memory',
+'• Pag nasa memory na → GAMITIN NA, huwag na ulit i-save',
+'• Pag small talk lang o tanong lang → HUWAG i-save',
+'',
+'MEMORY SAVE RULES:',
+'• BEHAVIOR: instruction/preference ng user tungkol sa AI behavior',
+'• CATEGORY: rule tungkol sa pag-categorize ng notes',
+'• FACT: important info tungkol sa user',
+'• JUNK = huwag i-save: test notes, blank notes, small talk, paulit-ulit',
+'',
+'RAW NOTES = BANAL:',
+'• HUWAG GALAWIN ang rawNote MALIBAN KUNG explicitly sinabi ng user',
+'• "palitan mo yung lamina" / "dagdagan mo" / "burahin mo yung part" = okay lang galawin',
+'• Kung hindi sinabi → hands off',
 '================================================================',
 '',
 '════════════════ BEHAVIOR RULES (SUNDIN PALAGI) ═══════════════',
@@ -358,6 +379,13 @@ sessionBlock,
 '',
 'CORE RULES:',
 '1. NOTES ≠ MEMORY. fix_note/bulk_fix = NOTES. add/remove_memory = MEMORY.',
+'1b. CUSTOM CATEGORIES — kung sinabi ng user na palitan ang category ng notes niya ng bagong category:',
+'    • I-update ang category ng notes (fix_note o bulk_fix)',
+'    • I-save sa memory bilang category rule:',
+'      {"type":"save_behavior_rule","data":{"key":"cat_rule_[catname]","title":"[CATNAME] category rule",',
+'      "behaviorRule":"Lahat ng notes about [topic] = [CATNAME] category palagi"}}',
+'    • Susunod na beses — auto-apply na ang custom category, walang tanong',
+'    • Custom categories = valid, same as built-in categories',
 '2. "tanggalin sa memory" → remove_memory. HINDI bulk_fix.',
 '3. fbKey sa fix_note/bulk_fix = KOPYA NANG EKSAKTO mula sa NOTES LIST sa ibaba.',
 '   HUWAG gumawa ng sariling fbKey. Huwag i-compute o i-guess. Kunin LITERAL mula sa listahan.',
@@ -365,7 +393,7 @@ sessionBlock,
 '5. Memory actions: direkta, walang confirm.',
 '6. reOrganize:true — lagyan LANG kapag kailangan i-rewrite ang organizedContent/summary/keyPoints.',
 '   Kung title o category lang ang babaguhin, WALA nang reOrganize.',
-'7. rawNote — PWEDE palitan kung EXPLICITLY sinabi ng user na palitan ang content/notes text mismo.',
+'7. rawNote = BANAL. HUWAG GALAWIN maliban kung may EXPLICIT na instruction:',
 '   Gamitin ang field "newRawNote":"bagong content" sa loob ng updates para dito.',
 '   Halimbawa: user says "palitan mo yung laman ng note na yan ng [bagong text]"',
 '   → updates: { "title":"...", "newRawNote":"bagong text na ito" }',
@@ -383,8 +411,16 @@ sessionBlock,
 'ACTION FORMATS:',
 'fix_note (title/category lang):',
 '  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW TITLE","category":"CAT"}}',
-'fix_note (palitan ang raw content):',
-'  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW","newRawNote":"bagong content"},"reOrganize":true}',
+'fix_note (palitan ang raw content) — ONLY kung EXPLICITLY sinabi ng user na palitan ang lamina:',
+'  {"type":"fix_note","fbKey":"EXACT","updates":{"title":"NEW","newRawNote":"bagong content","_explicitRawEdit":true},"reOrganize":true}',
+'',
+'BAWAL mag-edit ng rawNote MALIBAN KUNG sinabi ng user ang:',
+'  • "palitan mo yung lamina/content/notes"',
+'  • "dagdagan mo ng [specific text]"',
+'  • "burahin mo yung [specific part]"',
+'  • "i-edit mo yung text"',
+'  • "rewrite mo"',
+'KUNG HINDI SINABI → fix title/category lang, hands off sa rawNote',
 'fix_note (i-rewrite organizedContent):',
 '  {"type":"fix_note","fbKey":"EXACT","updates":{"category":"CAT"},"reOrganize":true}',
 'bulk_fix:',
@@ -454,8 +490,20 @@ async function executeAIAction(actionObj) {
     var d = actionObj.data || {};
     if (!d.behaviorRule) return 'Missing behaviorRule.';
     var bkey = (d.key || 'behavior_'+Date.now()).toLowerCase().replace(/[^a-z0-9_]/g,'_').slice(0,60);
-    var entry = { title:d.title||'Behavior Rule', category:'BEHAVIOR', summary:d.behaviorRule,
-                  behaviorRule:d.behaviorRule, keyPoints:[], updated:Date.now() };
+    var isCatRule = d.behaviorRule && /category|kategorya|palagi.*cat|cat.*palagi/i.test(d.behaviorRule);
+    var entry = {
+      title: d.title||'Behavior Rule',
+      category: isCatRule ? (d.categoryName||'BEHAVIOR') : 'BEHAVIOR',
+      summary: d.behaviorRule,
+      behaviorRule: d.behaviorRule,
+      categoryRule: isCatRule ? d.behaviorRule : undefined,
+      keyPoints: [],
+      updated: Date.now()
+    };
+    // If custom category rule — register it immediately
+    if(isCatRule && d.categoryName && typeof loadCustomCategories === 'function'){
+      loadCustomCategories();
+    }
     try {
       if (window._db&&window._update&&window._ref)
         await window._update(window._ref(window._db,'ai_memory'),{[bkey]:entry});
@@ -478,8 +526,12 @@ async function executeAIAction(actionObj) {
 
     var newRawNote = undefined;
     if (updates.newRawNote !== undefined) {
-      newRawNote = updates.newRawNote;
+      // ONLY allow rawNote change if explicitly flagged
+      if (updates._explicitRawEdit === true) {
+        newRawNote = updates.newRawNote;
+      }
       delete updates.newRawNote;
+      delete updates._explicitRawEdit;
     }
 
     var finalUpdates = Object.assign({}, updates);
@@ -1020,7 +1072,7 @@ async function sendAIChat() {
     : [{role:'system', content:buildAIInstructorPrompt()}].concat(historyForAI);
 
   try {
-    var data=await callLLM(apiMessages, 1200, useVision);
+    var data=await callLLM(apiMessages, 1500, useVision);
     if (data.error) throw new Error(data.error.message||'API error');
     var reply=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
     var actionMatch=reply.match(/\[ACTION\]([\s\S]*?)\[\/ACTION\]/);

@@ -107,7 +107,7 @@ function openView(key){
   const mine=isMyNote(n);
   document.getElementById('mv-meta').innerHTML=`
     <span ${getCatPill(n.category)} style="font-size:11px">${getCatEmoji(n.category)} ${n.category}</span>
-    <span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.date||''}</span>
+    <span style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace">${n.date||''}${n.time ? ' · ' + n.time : ''}</span>
     ${n.author?`<span style="font-size:11px;color:var(--text-m)">· ${esc(n.author)}</span>`:''}`;
   document.getElementById('mv-title').textContent=displayTitle(n);
   document.getElementById('mv-vis-area').innerHTML=mine

@@ -488,6 +488,9 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
   .ai-panel{width:calc(100vw - 32px);right:16px;bottom:80px;max-height:60vh}
   .ai-fab{bottom:16px;right:16px}
 }
+.fd-pill{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.fd-pill:hover{border-color:var(--border-h);color:var(--text-b)}
+.fd-pill.on{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
 
 </style>
 </head>
@@ -513,10 +516,44 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 <!-- APP NAV -->
 <nav class="app-nav">
   <a class="logo" href="index.html"><div class="logo-mark">✦</div><span>Notes AI</span></a>
-  <div class="search-wrap">
+  <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:360px">
+  <div class="search-wrap" style="flex:1;max-width:unset">
     <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
     <input type="text" placeholder="Search notes..." oninput="doSearch(this.value)">
   </div>
+  <div style="position:relative">
+    <button id="filter-btn" onclick="toggleFilterDropdown()" style="display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:7px 11px;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+      Filter
+      <span id="filter-count" style="display:none;background:var(--a);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;font-family:'JetBrains Mono',monospace">0</span>
+    </button>
+    <div id="filter-dropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:200;background:var(--surface);border:1px solid var(--border-h);border-radius:14px;padding:14px;width:220px;box-shadow:0 12px 40px rgba(0,0,0,0.4);display:none;flex-direction:column;gap:12px">
+      
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Category</div>
+        <div id="fd-cats" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+      </div>
+
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Source</div>
+        <div style="display:flex;gap:5px">
+          <button class="fd-pill" id="fd-text" onclick="toggleSourceFilter('text')">📄 Text</button>
+          <button class="fd-pill" id="fd-img" onclick="toggleSourceFilter('img')">🖼️ Image</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Visibility</div>
+        <div style="display:flex;gap:5px">
+          <button class="fd-pill" id="fd-pub" onclick="toggleVisFilter('public')">🌐 Public</button>
+          <button class="fd-pill" id="fd-priv" onclick="toggleVisFilter('private')">🔒 Private</button>
+        </div>
+      </div>
+
+      <button onclick="clearAllFilters()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s">✕ Clear Filters</button>
+    </div>
+  </div>
+</div>
   <div class="user-pill" onclick="doSignOut()">
     <div class="user-avatar" id="user-av">?</div>
     <span id="user-name" class="user-uname" style="max-width:80px;overflow:hidden;text-overflow:ellipsis">User</span>
@@ -704,6 +741,9 @@ let b64=null,noteVisibility='public';
 let deferredPrompt=null;
 let aiMemory={};
 let mainTab='mine'; // 'mine' | 'community'
+let filterDropdownOpen = false;
+let sourceFilter = null;  // null | 'text' | 'img'
+let activeCatFilters = new Set();
 
 // ============================================================
 // AUTHOR DETECTION
@@ -724,6 +764,7 @@ async function loadAIMemory(){
     const snap=await window._get(window._ref(window._db,'ai_memory'));
     if(snap.exists()){
       aiMemory=snap.val()||{};
+      loadCustomCategories();
       const c=Object.keys(aiMemory).length;
       if(c>0){
         document.getElementById('aiMemBar').classList.add('show');
@@ -735,7 +776,12 @@ async function loadAIMemory(){
 async function updateAIMemory(note){
   if(!window._db||!window._update||!window._ref)return;
   try{
+    const skipTitles=['test','testing','try','tries','sample','pantest','dummy','placeholder','blank','temp','temporary','walang lamina','untitled'];
+    const t=(note.title||'').toLowerCase().trim();
+    if(skipTitles.some(s=>t===s||t.startsWith(s+' ')))return;
+    if(!note.summary||note.summary.toLowerCase().includes('walang mahalagang'))return;
     const k=(note.category+'_'+note.title).toLowerCase().replace(/[^a-z0-9]/g,'_').substring(0,60);
+    if(aiMemory[k])return;
     const entry={title:note.title,category:note.category,keyPoints:(note.keyPoints||[]).slice(0,5),summary:(note.summary||'').substring(0,200),updated:Date.now()};
     await window._update(window._ref(window._db,'ai_memory'),{[k]:entry});
     aiMemory[k]=entry;
@@ -773,6 +819,20 @@ const knownCats={
   PERSONAL:{stripe:'linear-gradient(90deg,#818cf8,#c4b5fd)',pill:'cPERSONAL',emoji:'🙋'},
   OTHER:{stripe:'linear-gradient(90deg,#94a3b8,#cbd5e1)',pill:'cOTHER',emoji:'📌'},
 };
+
+// Custom categories from AI memory — loaded at runtime
+function loadCustomCategories(){
+  Object.values(aiMemory||{}).forEach(function(v){
+    if(v.categoryRule && v.category && !knownCats[v.category]){
+      knownCats[v.category]={
+        stripe:dynColors[Object.keys(knownCats).length % dynColors.length],
+        pill:null,
+        emoji:'🏷️',
+        custom:true
+      };
+    }
+  });
+}
 const dynColors=['linear-gradient(90deg,#34d399,#6ee7b7)','linear-gradient(90deg,#f472b6,#fbcfe8)','linear-gradient(90deg,#a78bfa,#ddd6fe)','linear-gradient(90deg,#fb7185,#fda4af)','linear-gradient(90deg,#38bdf8,#bae6fd)'];
 const dynPills=['background:rgba(52,211,153,0.1);color:#34d399','background:rgba(244,114,182,0.1);color:#f472b6','background:rgba(167,139,250,0.1);color:#a78bfa','background:rgba(251,113,133,0.1);color:#fb7185','background:rgba(56,189,248,0.1);color:#38bdf8'];
 const catCache={};let colorIdx=0;
@@ -798,7 +858,10 @@ STRICT RULES:
 JSON FORMAT:
 {
   "title": "...",
-  "category": "IT|STUDY|FREELANCE|CRYPTO|PERSONAL|HEALTH|BUSINESS|DESIGN|FOOD|FINANCE|SCIENCE|ART|OTHER",
+  "category": "IT|STUDY|FREELANCE|CRYPTO|PERSONAL|OTHER"+(function(){
+    var custom=Object.values(aiMemory||{}).filter(function(v){return v.categoryRule&&v.category&&!['IT','STUDY','FREELANCE','CRYPTO','PERSONAL','OTHER'].includes(v.category);}).map(function(v){return v.category;});
+    return custom.length?'|'+custom.join('|'):'';
+  })()+'|[ANY CUSTOM CATEGORY USER DEFINED]",
   "summary": "...",
   "keyPoints": ["...", "...", "..."],
   "organizedContent": "..."
@@ -972,6 +1035,7 @@ async function saveNote(p,source,rawNote=''){
     source,
     isPublic:noteVisibility==='public',
     date:new Date().toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}),
+    time:new Date().toLocaleTimeString('en-PH',{hour:'2-digit',minute:'2-digit',hour12:true}),
     author:window._currentUser?.displayName||window._currentUser?.email||'Anonymous',
     imageData:source==='img'?(window._pendingImgB64||''):'',
   };
@@ -1052,7 +1116,7 @@ function buildCard(n,mine){
     ${thumb}
     <div class="nc-top">
       <span ${getCatPill(isOff?'OTHER':n.category)}>${isOff?'⏳':getCatEmoji(n.category)} ${isOff?'QUEUED':n.category}</span>
-      <span class="nc-date">${n.date||''}</span>
+      <span class="nc-date">${n.date||''}${n.time ? ' · ' + n.time : ''}</span>
       ${badge}${offpill}
     </div>
     <div class="nc-title">${esc(displayTitle(n))}</div>
@@ -1065,11 +1129,105 @@ function buildCard(n,mine){
 }
 
 
+function toggleFilterDropdown(){
+  filterDropdownOpen = !filterDropdownOpen;
+  const dd = document.getElementById('filter-dropdown');
+  const btn = document.getElementById('filter-btn');
+  if(filterDropdownOpen){
+    dd.style.display='flex';
+    btn.style.borderColor='var(--a)';
+    btn.style.color='var(--a2)';
+    buildFilterDropdownCats();
+    document.addEventListener('click', closeFilterOnOutside);
+  } else {
+    dd.style.display='none';
+    btn.style.borderColor='';
+    btn.style.color='';
+    document.removeEventListener('click', closeFilterOnOutside);
+  }
+}
+
+function closeFilterOnOutside(e){
+  const dd = document.getElementById('filter-dropdown');
+  const btn = document.getElementById('filter-btn');
+  if(!dd.contains(e.target) && !btn.contains(e.target)){
+    filterDropdownOpen = false;
+    dd.style.display='none';
+    btn.style.borderColor='';
+    btn.style.color='';
+    document.removeEventListener('click', closeFilterOnOutside);
+  }
+}
+
+function buildFilterDropdownCats(){
+  const cats = [...new Set(window.allNotes.map(n=>n.category).filter(Boolean))].sort();
+  const wrap = document.getElementById('fd-cats');
+  wrap.innerHTML = cats.map(c=>
+    `<button class="fd-pill${activeCatFilters.has(c)?' on':''}" onclick="toggleCatFilter('${c}')">${getCatEmoji(c)} ${c}</button>`
+  ).join('');
+}
+
+function toggleCatFilter(cat){
+  if(activeCatFilters.has(cat)) activeCatFilters.delete(cat);
+  else activeCatFilters.add(cat);
+  buildFilterDropdownCats();
+  updateFilterCount();
+  renderApp();
+}
+
+function toggleSourceFilter(src){
+  sourceFilter = sourceFilter === src ? null : src;
+  document.getElementById('fd-text').classList.toggle('on', sourceFilter==='text');
+  document.getElementById('fd-img').classList.toggle('on', sourceFilter==='img');
+  updateFilterCount();
+  renderApp();
+}
+
+function toggleVisFilter(vis){
+  visFilt = visFilt === vis ? 'all' : vis;
+  document.getElementById('fd-pub').classList.toggle('on', visFilt==='public');
+  document.getElementById('fd-priv').classList.toggle('on', visFilt==='private');
+  updateFilterCount();
+  renderApp();
+}
+
+function clearAllFilters(){
+  activeCatFilters.clear();
+  sourceFilter = null;
+  visFilt = 'all';
+  appFilt = 'ALL';
+  document.getElementById('fd-text').classList.remove('on');
+  document.getElementById('fd-img').classList.remove('on');
+  document.getElementById('fd-pub').classList.remove('on');
+  document.getElementById('fd-priv').classList.remove('on');
+  updateFilterCount();
+  renderApp();
+}
+
+function updateFilterCount(){
+  const total = activeCatFilters.size + (sourceFilter?1:0) + (visFilt!=='all'?1:0);
+  const badge = document.getElementById('filter-count');
+  const btn = document.getElementById('filter-btn');
+  if(total > 0){
+    badge.style.display='inline';
+    badge.textContent=total;
+    btn.style.borderColor='var(--a)';
+    btn.style.color='var(--a2)';
+  } else {
+    badge.style.display='none';
+    btn.style.borderColor='';
+    btn.style.color='';
+  }
+}
+
+
 function renderApp(){
   buildAppFilters();
   let list=appFilt==='ALL'?[...window.allNotes]:window.allNotes.filter(n=>n.category===appFilt);
   if(visFilt==='public')list=list.filter(n=>n.isPublic===true);
   else if(visFilt==='private')list=list.filter(n=>n.isPublic!==true);
+  if(activeCatFilters.size > 0) list=list.filter(n=>activeCatFilters.has(n.category));
+  if(sourceFilter) list=list.filter(n=>n.source===sourceFilter);
   if(searchQ)list=list.filter(n=>[n.title,n.summary,n.organizedContent,n.category].some(s=>(s||'').toLowerCase().includes(searchQ)));
 
   const myNotes=list.filter(n=>isMyNote(n));
