@@ -18,48 +18,24 @@ const AI_SESSION = {
 
 // ─────────────────────────────────────────────────────────────
 // API ENDPOINTS
-// Cerebras = primary (text)  |  Groq = backup + all vision
+// Groq handles both text and vision
 // ─────────────────────────────────────────────────────────────
-const CEREBRAS_URL  = '/api/cerebras';   // server stores the key
-const CEREBRAS_MODEL = 'llama3.1-8b';
+const GROQ_URL          = '/api/groq';
 const GROQ_TEXT_MODEL   = 'llama-3.3-70b-versatile';
 const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
 /**
- * callCerebras — primary text inference.
- * Falls back to Groq text model on any error.
+ * callLLM — routes to Groq for both text and vision.
  * Returns { choices:[{message:{content:...}}] } shaped object.
  */
 async function callLLM(messages, maxTokens, useVision) {
-  // Vision always goes to Groq
-  if (useVision) {
-    var r = await fetch(GROQ_URL, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model: GROQ_VISION_MODEL, max_tokens: maxTokens, messages })
-    });
-    return r.json();
-  }
-
-  // Text: try Cerebras first
-  try {
-    var cr = await fetch(CEREBRAS_URL, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model: CEREBRAS_MODEL, max_tokens: maxTokens, messages })
-    });
-    var cd = await cr.json();
-    // If Cerebras returned an error object, fall through to Groq
-    if (cd && !cd.error) return cd;
-    console.warn('[AI] Cerebras error, falling back to Groq:', cd.error);
-  } catch(e) {
-    console.warn('[AI] Cerebras unreachable, falling back to Groq:', e.message);
-  }
-
-  // Fallback: Groq text
-  var gr = await fetch(GROQ_URL, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ model: GROQ_TEXT_MODEL, max_tokens: maxTokens, messages })
+  var model = useVision ? GROQ_VISION_MODEL : GROQ_TEXT_MODEL;
+  var r = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages })
   });
-  return gr.json();
+  return r.json();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -500,7 +476,6 @@ async function executeAIAction(actionObj) {
 
     if (updates.category) updates.category=updates.category.toUpperCase().replace(/\s+/g,'_');
 
-    // Handle newRawNote — user explicitly wants to replace raw content
     var newRawNote = undefined;
     if (updates.newRawNote !== undefined) {
       newRawNote = updates.newRawNote;
@@ -509,15 +484,12 @@ async function executeAIAction(actionObj) {
 
     var finalUpdates = Object.assign({}, updates);
 
-    // If newRawNote provided, set it in finalUpdates
     if (newRawNote !== undefined) {
       finalUpdates.rawNote = newRawNote;
     }
 
-    // reOrganize: rewrite organizedContent/summary/keyPoints via AI
     if (reOrganize === true) {
       try {
-        // Use newRawNote as base content if provided, else use existing rawNote
         var contentToOrg = newRawNote !== undefined
           ? newRawNote
           : (n.rawNote && n.rawNote !== '[image]' ? n.rawNote : n.organizedContent || n.title);
@@ -532,7 +504,6 @@ async function executeAIAction(actionObj) {
           var rp=JSON.parse(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw);
           function es(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
           function ea(v){return Array.isArray(v)?v.map(es).filter(Boolean):typeof v==='string'&&v?[v]:[];}
-          // Merge: explicit updates override AI-generated ones
           finalUpdates = Object.assign({
             title:    es(rp.title)||n.title,
             category: es(rp.category).toUpperCase().replace(/\s+/g,'_')||n.category,
@@ -540,7 +511,6 @@ async function executeAIAction(actionObj) {
             keyPoints:ea(rp.keyPoints),
             organizedContent: es(rp.organizedContent)
           }, finalUpdates);
-          // Explicit title/category always win
           if (updates.title) finalUpdates.title = updates.title;
           if (updates.category) finalUpdates.category = updates.category;
           if (updates.isPublic !== undefined) finalUpdates.isPublic = updates.isPublic;
@@ -548,7 +518,6 @@ async function executeAIAction(actionObj) {
       } catch(re){ console.warn('Re-org failed:', re.message); }
     }
 
-    // ── VERIFY: check what actually changed ───────────────
     var changed = Object.keys(finalUpdates).filter(function(key) {
       return JSON.stringify(n[key]) !== JSON.stringify(finalUpdates[key]);
     });
@@ -586,7 +555,6 @@ async function executeAIAction(actionObj) {
 
       if (tupdates.category) tupdates.category=tupdates.category.toUpperCase().replace(/\s+/g,'_');
 
-      // Handle newRawNote in bulk
       var tNewRaw = undefined;
       if (tupdates.newRawNote !== undefined) {
         tNewRaw = tupdates.newRawNote;
@@ -624,7 +592,6 @@ async function executeAIAction(actionObj) {
         } catch(re2){console.warn('Bulk re-org fail:',tn.title,re2.message);}
       }
 
-      // Verify something changed
       var tChanged = Object.keys(tFinal).filter(function(key){
         return JSON.stringify(tn[key]) !== JSON.stringify(tFinal[key]);
       });
@@ -1046,8 +1013,8 @@ async function sendAIChat() {
   historyForAI[lastIdx] = {role:'user', content: historyUserContent};
 
   var useVision = !!currentImgB64;
-  // Vision → Groq (with system prompt as first user block, API limitation)
-  // Text  → Cerebras primary, Groq fallback (handled inside callLLM)
+  // Vision → Groq vision model (system prompt as first user block, API limitation)
+  // Text  → Groq text model
   var apiMessages = useVision
     ? [{role:'user', content:[{type:'text',text:buildAIInstructorPrompt()+'\n\nNow respond to the user:'}]}].concat(historyForAI)
     : [{role:'system', content:buildAIInstructorPrompt()}].concat(historyForAI);
@@ -1129,21 +1096,16 @@ function updateMemoryBadge() {
 // ─────────────────────────────────────────────────────────────
 var _typingCounter=0;
 function cleanAIReply(text) {
-  // Remove any [ACTION]...[/ACTION] blocks (already stripped before calling, but safety net)
   text = text.replace(/\[ACTION\][\s\S]*?\[\/ACTION\]/g, '').trim();
-  // Remove raw JSON objects/arrays that leaked into the reply
   text = text.replace(/```json[\s\S]*?```/g, '').trim();
   text = text.replace(/```[\s\S]*?```/g, '').trim();
-  // Remove bare JSON arrays like [{"fbKey":...}] or objects { ... }
   text = text.replace(/(\n|^)\s*[\[{][\s\S]{0,2000}?[\]}]\s*(\n|$)/gm, '\n').trim();
-  // Collapse multiple blank lines
   text = text.replace(/\n{3,}/g, '\n\n');
   return text;
 }
 
 function appendChatMsg(role,text){
   var feed=document.getElementById('ai-chat-feed'); if(!feed) return;
-  // Clean JSON noise from AI messages only
   var display = role === 'ai' ? cleanAIReply(text) : text;
   var div=document.createElement('div'); div.className='aicm aicm-'+role;
   div.innerHTML='<div class="aicm-bubble">'+escChat(display)
@@ -1317,7 +1279,6 @@ function showMemoryDirect(){
   var topics   =entries.filter(function(e){return !e[1].behaviorRule&&!e[1].categoryRule&&e[1].category!=='BEHAVIOR';});
 
   function openMemEditModal(kv) {
-    // Remove existing edit modal if any
     var existing = document.getElementById('ai-mem-edit-modal');
     if (existing) existing.remove();
 
@@ -1327,19 +1288,16 @@ function showMemoryDirect(){
 
     var box = document.createElement('div'); box.className = 'ai-mem-edit-box';
 
-    // Title
     var titleEl = document.createElement('div'); titleEl.className = 'ai-mem-edit-title';
     titleEl.innerHTML = '✏️ Edit Memory Entry';
     box.appendChild(titleEl);
 
-    // Title field
     var fTitle = document.createElement('div'); fTitle.className = 'ai-mem-edit-field';
     var lTitle = document.createElement('div'); lTitle.className = 'ai-mem-edit-label'; lTitle.textContent = 'Title';
     var iTitle = document.createElement('input'); iTitle.className = 'ai-mem-edit-input';
     iTitle.value = v.title || k;
     fTitle.appendChild(lTitle); fTitle.appendChild(iTitle); box.appendChild(fTitle);
 
-    // Summary / Rule field
     var summaryVal = v.behaviorRule || v.categoryRule || v.summary || '';
     var fSum = document.createElement('div'); fSum.className = 'ai-mem-edit-field';
     var lSum = document.createElement('div'); lSum.className = 'ai-mem-edit-label';
@@ -1348,14 +1306,12 @@ function showMemoryDirect(){
     iSum.value = summaryVal;
     fSum.appendChild(lSum); fSum.appendChild(iSum); box.appendChild(fSum);
 
-    // Category field
     var fCat = document.createElement('div'); fCat.className = 'ai-mem-edit-field';
     var lCat = document.createElement('div'); lCat.className = 'ai-mem-edit-label'; lCat.textContent = 'Category';
     var iCat = document.createElement('input'); iCat.className = 'ai-mem-edit-input';
     iCat.value = v.category || 'OTHER';
     fCat.appendChild(lCat); fCat.appendChild(iCat); box.appendChild(fCat);
 
-    // Buttons
     var foot = document.createElement('div'); foot.className = 'ai-mem-edit-foot';
     var cancelBtn = document.createElement('button'); cancelBtn.className = 'ai-mem-edit-cancel'; cancelBtn.textContent = 'Cancel';
     var saveBtn = document.createElement('button'); saveBtn.className = 'ai-mem-edit-save'; saveBtn.textContent = '💾 Save';
@@ -1398,7 +1354,6 @@ function showMemoryDirect(){
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
-    // Focus first input
     setTimeout(function(){ iTitle.focus(); iTitle.select(); }, 80);
   }
 
@@ -1412,16 +1367,13 @@ function showMemoryDirect(){
     bodyEl.appendChild(titleEl); bodyEl.appendChild(subEl); bodyEl.appendChild(keyEl);
     card.appendChild(icoEl); card.appendChild(bodyEl);
 
-    // Action buttons wrapper
     var actions = document.createElement('div'); actions.className = 'ai-mem-card-actions';
 
-    // Edit button — orange pencil
     var edit = document.createElement('button'); edit.className = 'ai-mem-card-edit';
     edit.title = 'Edit'; edit.innerHTML = '✏️';
     edit.addEventListener('click', function(){ openMemEditModal(kv); });
     actions.appendChild(edit);
 
-    // Delete button — red trash
     var del=document.createElement('button'); del.className='ai-mem-card-del';
     del.title='Delete'; del.innerHTML='🗑️';
     del.addEventListener('click',function(){
