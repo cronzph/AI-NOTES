@@ -552,7 +552,11 @@ async function executeAIAction(actionObj) {
         if (!rdata.error) {
           var rraw=(rdata.choices[0].message.content||'').replace(/```json|```/g,'').trim();
           var rsi=rraw.indexOf('{'),rei=rraw.lastIndexOf('}');
-          var rp=JSON.parse(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw);
+          var rclean=(rsi!==-1&&rei!==-1?rraw.slice(rsi,rei+1):rraw)
+            .replace(/[\u0000-\u001F\u007F]/g,function(c){
+              return c==='\n'?'\\n':c==='\r'?'\\r':c==='\t'?'\\t':'';
+            });
+          var rp=JSON.parse(rclean);
           function es(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
           function ea(v){return Array.isArray(v)?v.map(es).filter(Boolean):typeof v==='string'&&v?[v]:[];}
           finalUpdates = Object.assign({
@@ -627,7 +631,11 @@ async function executeAIAction(actionObj) {
           if (!tdata.error) {
             var traw=(tdata.choices[0].message.content||'').replace(/```json|```/g,'').trim();
             var tsi2=traw.indexOf('{'),tei2=traw.lastIndexOf('}');
-            var tp2=JSON.parse(tsi2!==-1&&tei2!==-1?traw.slice(tsi2,tei2+1):traw);
+            var tclean=(tsi2!==-1&&tei2!==-1?traw.slice(tsi2,tei2+1):traw)
+              .replace(/[\u0000-\u001F\u007F]/g,function(c){
+                return c==='\n'?'\\n':c==='\r'?'\\r':c==='\t'?'\\t':'';
+              });
+            var tp2=JSON.parse(tclean);
             function tes(v){return v==null?'':typeof v==='string'?v:Array.isArray(v)?v.join('\n'):String(v);}
             function tea(v){return Array.isArray(v)?v.map(tes).filter(Boolean):typeof v==='string'&&v?[v]:[];}
             tFinal = Object.assign({
