@@ -21,7 +21,7 @@ const AI_SESSION = {
 // Cerebras = primary (text)  |  Groq = backup + all vision
 // ─────────────────────────────────────────────────────────────
 const CEREBRAS_URL  = '/api/cerebras';   // server stores the key
-const CEREBRAS_MODEL = 'gpt-oss-120b';
+const CEREBRAS_MODEL = 'llama3.1-8b';
 const GROQ_TEXT_MODEL   = 'llama-3.3-70b-versatile';
 const GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
