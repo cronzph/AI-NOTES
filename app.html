@@ -636,6 +636,14 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
         <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         Community <span class="mtab-count" id="mtab-com-cnt"></span>
       </button>
+      <button class="mtab" id="mtab-shared" onclick="switchMainTab('shared',this)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        Shared With Me <span class="mtab-count" id="mtab-shared-cnt"></span>
+      </button>
+      <button class="mtab" id="mtab-sharedme" onclick="switchMainTab('sharedme',this)">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        Shared By Me <span class="mtab-count" id="mtab-sharedme-cnt"></span>
+      </button>
     </div>
 
     <!-- Filters row (category + visibility) -->
@@ -655,6 +663,14 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
     <!-- Community tab -->
     <div id="tab-community" class="tab-panel">
       <div id="sec-community"></div>
+    </div>
+    <!-- Shared With Me tab -->
+    <div id="tab-shared" class="tab-panel">
+      <div id="sec-shared"></div>
+    </div>
+    <!-- Shared By Me tab -->
+    <div id="tab-sharedme" class="tab-panel">
+      <div id="sec-sharedme"></div>
     </div>
   </main>
 </div>
@@ -944,6 +960,8 @@ function switchMainTab(tab,btn){
   btn.classList.add('active');
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   const tp=document.getElementById('tab-'+tab);if(tp)tp.classList.add('active');
+  if(tab==='shared') renderSharedWithMe();
+  if(tab==='sharedme'){const s=document.getElementById('sec-sharedme');if(s&&typeof renderSharedByMe==='function')renderSharedByMe(s);}
 }
 
 // ============================================================
@@ -1335,7 +1353,7 @@ renderApp();
 <!-- Modal logic lives in app-modals.js -->
 <script src="app-offline.js"></script>
 <script src="app-modals.js"></script>
-<!-- AI Instructor FAB lives in app-ai.js -->
+<script src="app-friends.js"></script>
 <script src="app-ai.js"></script>
 </body>
 </html>
