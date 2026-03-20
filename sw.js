@@ -1,5 +1,5 @@
 // sw.js — Notes AI v6
-const CACHE = 'notesai-v6';
+const CACHE = 'notesai-v9';
 
 const SHELL = [
   '/app.html',

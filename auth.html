@@ -10,14 +10,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 
 <script type="module">
-// Lock orientation to portrait on mobile
-(function(){
-  if(!screen||!screen.orientation||!screen.orientation.lock)return;
-  var isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  if(!isMobile)return;
-  screen.orientation.lock('portrait').catch(function(){});
-})();
-
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, updateProfile, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
   import { getDatabase, ref, update } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
