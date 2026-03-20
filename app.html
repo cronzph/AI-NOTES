@@ -495,9 +495,12 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .fd-pill{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s}
 .fd-pill:hover{border-color:var(--border-h);color:var(--text-b)}
 .fd-pill.on{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
-#filter-btn{color:var(--text-m)!important}
+#filter-btn{color:var(--text-m)!important;outline:none!important}
 #filter-btn:hover{color:var(--a2)!important;border-color:var(--a)!important}
-#filter-btn.active-filter{color:var(--a2)!important;border-color:var(--a)!important;background:var(--ag)!important}
+#filter-btn:focus,#filter-btn:active{color:var(--text-m)!important;border-color:var(--border)!important;background:var(--surface2)!important;outline:none!important}
+#filter-btn.active-filter,#filter-btn.active-filter:focus,#filter-btn.active-filter:active{color:var(--a2)!important;border-color:var(--a)!important;background:var(--ag)!important}
+.friend-nav-btn:focus,.friend-nav-btn:active{outline:none!important;color:var(--text-m)!important;border-color:var(--border)!important;background:var(--surface2)!important}
+.friend-nav-btn:focus svg,.friend-nav-btn:active svg{color:var(--text-m)!important}
 
 </style>
 </head>
