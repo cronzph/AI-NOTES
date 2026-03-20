@@ -34,8 +34,13 @@ function initFriendSystem() {
   // Listen: my friends
   window._onValue(window._ref(window._db, 'friends/' + uid), function(snap) {
     window.myFriends = snap.val() || {};
+    console.log('[Friends] Loaded:', Object.keys(window.myFriends).length, 'friends');
     renderFriendsUI();
     updateFriendBadge();
+    // Update tab counts
+    var smc = document.getElementById('mtab-sharedme-cnt');
+    var fc = Object.keys(window.myFriends).length;
+    if(smc && fc > 0) renderApp();
   });
 
   // Listen: incoming requests
