@@ -581,7 +581,8 @@ button.friend-nav-btn:hover{
 /* Mobile only elements — hidden on desktop */
 .mob-hamburger{display:none;width:36px;height:36px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;align-items:center;justify-content:center;color:var(--text-m);flex-shrink:0;transition:all 0.2s}
 .mob-hamburger:hover{border-color:var(--border-h);color:var(--text-b)}
-.mob-menu{display:none;position:fixed;top:52px;left:0;right:0;z-index:150;background:var(--surface);border-bottom:1px solid var(--border-h);flex-direction:column;gap:4px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,0.4);animation:slideDown 0.25s cubic-bezier(0.34,1.56,0.64,1)}
+.mob-menu{display:none!important;position:fixed;top:52px;left:0;right:0;z-index:150;background:var(--surface);border-bottom:1px solid var(--border-h);flex-direction:column;gap:4px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,0.4);animation:slideDown 0.25s cubic-bezier(0.34,1.56,0.64,1)}
+.mob-menu.open{display:flex!important}
 .mob-menu-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;transition:all 0.2s;font-size:13px;font-weight:600;color:var(--text-b)}
 .mob-menu-item:hover{border-color:var(--border-h)}
 .mob-menu-item.danger{background:rgba(248,113,113,0.07);border-color:rgba(248,113,113,0.2);color:var(--red)}
@@ -1399,7 +1400,11 @@ function toggleMobMenu(){
   var menu = document.getElementById('mob-menu');
   var btn = document.getElementById('mob-hamburger');
   if(!menu) return;
-  menu.style.display = mobMenuOpen ? 'flex' : 'none';
+  if(mobMenuOpen){
+    menu.classList.add('open');
+  } else {
+    menu.classList.remove('open');
+  }
   btn.style.borderColor = mobMenuOpen ? 'var(--a)' : '';
   btn.style.color = mobMenuOpen ? 'var(--a2)' : '';
   // Sync mobile user name
@@ -1428,7 +1433,7 @@ function closeMobMenuOutside(e){
   var btn = document.getElementById('mob-hamburger');
   if(menu && btn && !menu.contains(e.target) && !btn.contains(e.target)){
     mobMenuOpen = false;
-    menu.style.display = 'none';
+    menu.classList.remove('open');
     btn.style.borderColor = '';
     btn.style.color = '';
     document.removeEventListener('click', closeMobMenuOutside);
