@@ -3,8 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="screen-orientation" content="portrait">
-<meta name="x5-orientation" content="portrait">
 <meta name="theme-color" content="#050810">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,6 +11,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 
 <script type="module">
+// Lock orientation to portrait on mobile
+(function(){
+  if(!screen||!screen.orientation||!screen.orientation.lock)return;
+  var isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if(!isMobile)return;
+  screen.orientation.lock('portrait').catch(function(){});
+})();
+
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
   import { getDatabase, ref, push, onValue, remove, update, get, goOnline, goOffline } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
   import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
@@ -484,31 +490,64 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 
 @media(max-width:768px){
   html,body{height:auto;overflow:auto}
+  
+  /* NAV — hamburger */
+  .app-nav{padding:0 12px;height:52px}
+  .search-wrap{display:flex!important;flex:1;max-width:unset}
+#filter-btn-wrap{display:flex!important;flex:1}
+
+#filter-btn{display:none!important}
+#filter-btn-wrap{max-width:unset!important}
+.mob-menu-search{display:none!important}
+  #filter-btn-wrap{display:none}
+  .user-pill{display:none}
+  .friend-nav-btn{display:none}
+  .mob-hamburger{display:flex!important}
+
+  /* HAMBURGER MENU */
+  .mob-menu{display:flex!important}
+
+  /* LAYOUT */
   .app-body{grid-template-columns:1fr;overflow:visible}
-  .sidebar{height:auto;border-right:none;border-bottom:1px solid var(--border)}
-  .composer{min-height:260px}
-  textarea.ti{flex:none;min-height:160px;height:200px}
+
+  /* SIDEBAR — collapsed by default */
+  .sidebar{
+    border-right:none;
+    border-bottom:1px solid var(--border);
+    height:auto;
+    overflow:hidden;
+    transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);
+    max-height:52px;
+  }
+  .sidebar.mob-open{max-height:600px}
+  .mob-composer-toggle{display:flex!important}
+  .composer{display:none}
+  .sidebar.mob-open .composer{display:flex}
+  .ai-mem-bar{display:none!important}
+  .sidebar.mob-open .ai-mem-bar{display:flex!important}
+  .vis-toggle-wrap{display:none}
+  .sidebar.mob-open .vis-toggle-wrap{display:block}
+  .proc-area{display:none}
+  .sidebar.mob-open .proc-area{display:flex}
+
+  /* TABS — dropdown */
+  .main-tabs{display:none!important}
+  .mob-tab-dropdown-wrap{display:flex!important}
+
+  /* MAIN */
   .main-content{min-height:60vh;overflow:visible;flex:none}
   .tab-panel{overflow:visible;max-height:none}
   .app-grid{grid-template-columns:1fr}
-  .user-uname,.user-out{display:none}
-  .ef-row{grid-template-columns:1fr}
+
+  /* MODALS */
   .modal-view,.modal-edit{max-height:96vh;border-radius:16px}
+  .ef-row{grid-template-columns:1fr}
+
+  /* AI PANEL */
   .ai-panel{width:calc(100vw - 32px);right:16px;bottom:80px;max-height:60vh}
   .ai-fab{bottom:16px;right:16px}
 }
-@media screen and (orientation:landscape) and (max-width:768px){
-  html{
-    transform:rotate(-90deg);
-    transform-origin:left top;
-    width:100vh;
-    height:100vw;
-    overflow-x:hidden;
-    position:absolute;
-    top:100%;
-    left:0;
-  }
-}
+
 .fd-pill{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s}
 .fd-pill:hover{border-color:var(--border-h);color:var(--text-b)}
 .fd-pill.on{background:var(--ag);border-color:var(--border-h);color:var(--a2)}
@@ -538,6 +577,25 @@ button.friend-nav-btn:hover{
   color:var(--text-b)!important;
   border-color:var(--border-h)!important;
 }
+
+/* Mobile only elements — hidden on desktop */
+.mob-hamburger{display:none;width:36px;height:36px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;align-items:center;justify-content:center;color:var(--text-m);flex-shrink:0;transition:all 0.2s}
+.mob-hamburger:hover{border-color:var(--border-h);color:var(--text-b)}
+.mob-menu{display:none;position:fixed;top:52px;left:0;right:0;z-index:150;background:var(--surface);border-bottom:1px solid var(--border-h);flex-direction:column;gap:4px;padding:12px;box-shadow:0 12px 40px rgba(0,0,0,0.4);animation:slideDown 0.25s cubic-bezier(0.34,1.56,0.64,1)}
+.mob-menu-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;transition:all 0.2s;font-size:13px;font-weight:600;color:var(--text-b)}
+.mob-menu-item:hover{border-color:var(--border-h)}
+.mob-menu-item.danger{background:rgba(248,113,113,0.07);border-color:rgba(248,113,113,0.2);color:var(--red)}
+.mob-menu-item.danger:hover{background:rgba(248,113,113,0.15);border-color:var(--red)}
+.mob-menu-search{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;transition:all 0.2s}
+.mob-menu-search:focus-within{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
+.mob-menu-search input{background:none;border:none;outline:none;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;flex:1}
+.mob-menu-search input::placeholder{color:var(--text-m)}
+.mob-composer-toggle{display:none;width:100%;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;background:none;border:none;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;font-weight:700}
+.mob-composer-toggle svg{transition:transform 0.3s}
+.sidebar.mob-open .mob-composer-toggle svg{transform:rotate(180deg)}
+.mob-tab-dropdown-wrap{display:none;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.mob-tab-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;padding:10px 14px;cursor:pointer;outline:none;transition:all 0.2s;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='12' height='12' fill='none' stroke='%237a9ac7' stroke-width='2' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+.mob-tab-select:focus{border-color:var(--a);box-shadow:0 0 0 3px var(--ag)}
 </style>
 </head>
 <body>
@@ -562,60 +620,91 @@ button.friend-nav-btn:hover{
 <!-- APP NAV -->
 <nav class="app-nav">
   <a class="logo" href="index.html"><div class="logo-mark">✦</div><span>Notes AI</span></a>
-  <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:360px">
-  <div class="search-wrap" style="flex:1;max-width:unset">
-    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-    <input type="text" placeholder="Search notes..." oninput="doSearch(this.value)">
-  </div>
-  <div style="position:relative">
-    <button id="filter-btn" onclick="toggleFilterDropdown(event)" style="display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:7px 11px;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap">
-      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-      Filter
-      <span id="filter-count" style="display:none;background:var(--a);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;font-family:'JetBrains Mono',monospace">0</span>
-    </button>
-    <div id="filter-dropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:200;background:var(--surface);border:1px solid var(--border-h);border-radius:14px;padding:14px;width:220px;box-shadow:0 12px 40px rgba(0,0,0,0.4);display:none;flex-direction:column;gap:12px">
-      
-      <div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Category</div>
-        <div id="fd-cats" style="display:flex;flex-wrap:wrap;gap:5px"></div>
-      </div>
 
-      <div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Source</div>
-        <div style="display:flex;gap:5px">
-          <button class="fd-pill" id="fd-text" onclick="toggleSourceFilter('text')">📄 Text</button>
-          <button class="fd-pill" id="fd-img" onclick="toggleSourceFilter('img')">🖼️ Image</button>
+  <!-- Desktop search + filter -->
+  <div id="filter-btn-wrap" style="display:flex;align-items:center;gap:8px;flex:1;max-width:360px">
+    <div class="search-wrap" style="flex:1;max-width:unset">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input type="text" id="desk-search" placeholder="Search notes..." oninput="doSearch(this.value)">
+    </div>
+    <div style="position:relative">
+      <button id="filter-btn" onclick="toggleFilterDropdown(event)" style="display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);padding:7px 11px;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s;white-space:nowrap">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+        Filter
+        <span id="filter-count" style="display:none;background:var(--a);color:#fff;font-size:9px;font-weight:800;padding:1px 5px;border-radius:8px;font-family:'JetBrains Mono',monospace">0</span>
+      </button>
+      <div id="filter-dropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;z-index:200;background:var(--surface);border:1px solid var(--border-h);border-radius:14px;padding:14px;width:220px;box-shadow:0 12px 40px rgba(0,0,0,0.4);flex-direction:column;gap:12px">
+        <div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Category</div>
+          <div id="fd-cats" style="display:flex;flex-wrap:wrap;gap:5px"></div>
         </div>
-      </div>
-
-      <div>
-        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Visibility</div>
-        <div style="display:flex;gap:5px">
-          <button class="fd-pill" id="fd-pub" onclick="toggleVisFilter('public')">🌐 Public</button>
-          <button class="fd-pill" id="fd-priv" onclick="toggleVisFilter('private')">🔒 Private</button>
+        <div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Source</div>
+          <div style="display:flex;gap:5px">
+            <button class="fd-pill" id="fd-text" onclick="toggleSourceFilter('text')">📄 Text</button>
+            <button class="fd-pill" id="fd-img" onclick="toggleSourceFilter('img')">🖼️ Image</button>
+          </div>
         </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--a2);font-family:'JetBrains Mono',monospace;margin-bottom:7px">Visibility</div>
+          <div style="display:flex;gap:5px">
+            <button class="fd-pill" id="fd-pub" onclick="toggleVisFilter('public')">🌐 Public</button>
+            <button class="fd-pill" id="fd-priv" onclick="toggleVisFilter('private')">🔒 Private</button>
+          </div>
+        </div>
+        <button onclick="clearAllFilters()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s">✕ Clear Filters</button>
       </div>
-
-      <button onclick="clearAllFilters()" style="width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s">✕ Clear Filters</button>
     </div>
   </div>
-</div>
-  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-  <button class="friend-nav-btn" onclick="openFriendsPanel()" title="Friends">
-    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-    <span id="friend-notif-badge">0</span>
+
+  <!-- Desktop right buttons -->
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0" id="nav-desk-right">
+    <button class="friend-nav-btn" onclick="openFriendsPanel()" title="Friends">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span id="friend-notif-badge">0</span>
+    </button>
+    <div class="user-pill" onclick="openAccountModal()">
+      <div class="user-avatar" id="user-av">?</div>
+      <span id="user-name" class="user-uname" style="max-width:80px;overflow:hidden;text-overflow:ellipsis">User</span>
+      <span class="user-out" style="color:var(--text-m);font-size:11px">· ▾</span>
+    </div>
+  </div>
+
+  <!-- Mobile hamburger -->
+  <button class="mob-hamburger" id="mob-hamburger" onclick="toggleMobMenu()">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
-  <div class="user-pill" onclick="openAccountModal()">
-    <div class="user-avatar" id="user-av">?</div>
-    <span id="user-name" class="user-uname" style="max-width:80px;overflow:hidden;text-overflow:ellipsis">User</span>
-    <span class="user-out" style="color:var(--text-m);font-size:11px">· ▾</span>
+</nav>
+
+<!-- Mobile hamburger menu -->
+<div class="mob-menu" id="mob-menu">
+  <div class="mob-menu-item" onclick="openFriendsPanel();toggleMobMenu()">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    Friends
+    <span id="mob-friend-badge" style="margin-left:auto;background:var(--red);color:#fff;font-size:9px;font-weight:800;padding:1px 6px;border-radius:8px;display:none">0</span>
+  </div>
+  <div class="mob-menu-item" onclick="openAccountModal();toggleMobMenu()">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    <span id="mob-user-name">Account</span>
+  </div>
+  <div class="mob-menu-item danger" onclick="doSignOut()">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Log Out
   </div>
 </div>
-</nav>
 
 <div class="app-body">
   <!-- SIDEBAR — unified message-composer style -->
   <aside class="sidebar">
+
+    <!-- Mobile composer toggle -->
+    <button class="mob-composer-toggle" onclick="toggleMobComposer()">
+      <span style="display:flex;align-items:center;gap:8px">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Note
+      </span>
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
 
     <!-- Hidden file input — triggered by the + button below -->
     <input type="file" accept="image/*" id="fi" onchange="onFile(event)">
@@ -678,6 +767,16 @@ button.friend-nav-btn:hover{
 
   <!-- MAIN CONTENT -->
   <main class="main-content">
+    <!-- Mobile tab dropdown -->
+    <div class="mob-tab-dropdown-wrap">
+      <select class="mob-tab-select" id="mob-tab-select" onchange="switchMainTabMob(this.value)">
+        <option value="mine">👤 My Notes</option>
+        <option value="community">🌐 Community</option>
+        <option value="shared">📥 Shared With Me</option>
+        <option value="sharedme">📤 Shared By Me</option>
+      </select>
+    </div>
+
     <!-- Tab bar -->
     <div class="main-tabs">
       <button class="mtab active" id="mtab-mine" onclick="switchMainTab('mine',this)">
@@ -1291,6 +1390,81 @@ function updateFilterCount(){
   }
 }
 
+
+var mobMenuOpen = false;
+var mobComposerOpen = false;
+
+function toggleMobMenu(){
+  mobMenuOpen = !mobMenuOpen;
+  var menu = document.getElementById('mob-menu');
+  var btn = document.getElementById('mob-hamburger');
+  if(!menu) return;
+  menu.style.display = mobMenuOpen ? 'flex' : 'none';
+  btn.style.borderColor = mobMenuOpen ? 'var(--a)' : '';
+  btn.style.color = mobMenuOpen ? 'var(--a2)' : '';
+  // Sync mobile user name
+  var mobName = document.getElementById('mob-user-name');
+  var userName = document.getElementById('user-name');
+  if(mobName && userName) mobName.textContent = userName.textContent || 'Account';
+  // Sync friend badge
+  var mobBadge = document.getElementById('mob-friend-badge');
+  var deskBadge = document.getElementById('friend-notif-badge');
+  if(mobBadge && deskBadge){
+    var count = deskBadge.textContent;
+    mobBadge.textContent = count;
+    mobBadge.style.display = parseInt(count) > 0 ? 'inline' : 'none';
+  }
+  if(mobMenuOpen){
+    setTimeout(function(){
+      document.addEventListener('click', closeMobMenuOutside);
+    }, 50);
+  } else {
+    document.removeEventListener('click', closeMobMenuOutside);
+  }
+}
+
+function closeMobMenuOutside(e){
+  var menu = document.getElementById('mob-menu');
+  var btn = document.getElementById('mob-hamburger');
+  if(menu && btn && !menu.contains(e.target) && !btn.contains(e.target)){
+    mobMenuOpen = false;
+    menu.style.display = 'none';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+    document.removeEventListener('click', closeMobMenuOutside);
+  }
+}
+
+function toggleMobComposer(){
+  mobComposerOpen = !mobComposerOpen;
+  var sidebar = document.querySelector('.sidebar');
+  if(sidebar) sidebar.classList.toggle('mob-open', mobComposerOpen);
+}
+
+function switchMainTabMob(tab){
+  // Sync with desktop tab switcher
+  var btn = document.getElementById('mtab-'+tab);
+  if(btn) switchMainTab(tab, btn);
+  else {
+    mainTab = tab;
+    document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+    var tp = document.getElementById('tab-'+tab);
+    if(tp) tp.classList.add('active');
+    if(tab==='shared') renderSharedWithMe();
+    if(tab==='sharedme'){
+      var s = document.getElementById('sec-sharedme');
+      if(s && typeof renderSharedByMe==='function') renderSharedByMe(s);
+    }
+  }
+}
+
+// Sync mobile tab select with desktop tab clicks
+var _origSwitchMainTab = switchMainTab;
+switchMainTab = function(tab, btn){
+  _origSwitchMainTab(tab, btn);
+  var sel = document.getElementById('mob-tab-select');
+  if(sel) sel.value = tab;
+};
 
 function renderApp(){
   buildAppFilters();

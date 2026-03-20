@@ -5,8 +5,6 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="screen-orientation" content="portrait">
-<meta name="x5-orientation" content="portrait">
 <meta name="theme-color" content="#050810">
 <meta name="description" content="Notes AI by CRONZPH — AI-powered notes organizer">
 <meta name="mobile-web-app-capable" content="yes">
@@ -18,6 +16,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 
 <script type="module">
+// Lock orientation to portrait on mobile
+(function(){
+  if(!screen||!screen.orientation||!screen.orientation.lock)return;
+  var isMobile=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  if(!isMobile)return;
+  screen.orientation.lock('portrait').catch(function(){});
+})();
+
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
   import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
   import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
@@ -236,18 +242,7 @@ body.has-strip{--strip-h:50px}
   .modal-view{max-height:96vh;border-radius:16px}
 }
 
-@media screen and (orientation:landscape) and (max-width:768px){
-  html{
-    transform:rotate(-90deg);
-    transform-origin:left top;
-    width:100vh;
-    height:100vw;
-    overflow-x:hidden;
-    position:absolute;
-    top:100%;
-    left:0;
-  }
-}
+
 </style>
 </head>
 <body>

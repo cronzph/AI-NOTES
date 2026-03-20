@@ -11,6 +11,10 @@ const SHELL = [
   '/app-friends.js',
   '/manifest.json',
 ];
+const NEVER_CACHE = [
+  '/api/config',
+  '/api/groq',
+];
 
 // ── INSTALL ───────────────────────────────────────────────────
 self.addEventListener('install', e => {
@@ -45,10 +49,30 @@ self.addEventListener('fetch', e => {
   // 1. Non-GET requests (POST, etc.)
   if (e.request.method !== 'GET') return;
 
+  // Never cache these paths
+  if (NEVER_CACHE.some(p => url.pathname.startsWith(p))) {
+    e.respondWith(
+      fetch(e.request, {cache:'no-store'}).catch(function(){
+        return new Response(JSON.stringify({error:'offline'}),{
+          status:503,
+          headers:{'Content-Type':'application/json'}
+        });
+      })
+    );
+    return;
+  }
+
   // 2. API calls — must go to network, never cache
   //    Return a proper network fetch so SW doesn't interfere
   if (url.pathname.startsWith('/api/')) {
-    e.respondWith(fetch(e.request));
+    e.respondWith(
+      fetch(e.request, {cache: 'no-store'}).catch(function(){
+        return new Response(JSON.stringify({error:'offline'}),{
+          status:503,
+          headers:{'Content-Type':'application/json'}
+        });
+      })
+    );
     return;
   }
 
