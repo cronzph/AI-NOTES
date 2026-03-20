@@ -502,6 +502,25 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
 .friend-nav-btn:focus,.friend-nav-btn:active{outline:none!important;color:var(--text-m)!important;border-color:var(--border)!important;background:var(--surface2)!important}
 .friend-nav-btn:focus svg,.friend-nav-btn:active svg{color:var(--text-m)!important}
 
+button.friend-nav-btn,
+button.friend-nav-btn:link,
+button.friend-nav-btn:visited,
+button.friend-nav-btn:hover,
+button.friend-nav-btn:focus,
+button.friend-nav-btn:active,
+button.friend-nav-btn:focus-visible,
+button.friend-nav-btn:focus-within{
+  color:var(--text-m)!important;
+  background:var(--surface2)!important;
+  border-color:var(--border)!important;
+  outline:none!important;
+  box-shadow:none!important;
+  -webkit-tap-highlight-color:transparent!important;
+}
+button.friend-nav-btn:hover{
+  color:var(--text-b)!important;
+  border-color:var(--border-h)!important;
+}
 </style>
 </head>
 <body>
@@ -569,10 +588,10 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
     <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     <span id="friend-notif-badge">0</span>
   </button>
-  <div class="user-pill" onclick="doSignOut()">
+  <div class="user-pill" onclick="openAccountModal()">
     <div class="user-avatar" id="user-av">?</div>
     <span id="user-name" class="user-uname" style="max-width:80px;overflow:hidden;text-overflow:ellipsis">User</span>
-    <span class="user-out" style="color:var(--text-m);font-size:11px">· Out</span>
+    <span class="user-out" style="color:var(--text-m);font-size:11px">· ▾</span>
   </div>
 </div>
 </nav>
@@ -1329,7 +1348,99 @@ function doSearch(v){searchQ=v.toLowerCase();renderApp();}
 // ============================================================
 // UTILS
 // ============================================================
-function doSignOut(){if(!confirm('Sign out?'))return;window._signOut().then(()=>window.location.href='index.html');}
+function doSignOut(){
+  if(!confirm('Sign out?'))return;
+  closeAccountModal();
+  window._signOut().then(()=>window.location.href='index.html');
+}
+
+function openAccountModal(){
+  const user=window._currentUser;
+  if(!user)return;
+  document.getElementById('acc-av').textContent=(user.displayName||user.email||'?')[0].toUpperCase();
+  document.getElementById('acc-name').textContent=user.displayName||user.email.split('@')[0];
+  document.getElementById('acc-email').textContent=user.email||'';
+  // Reset forms
+  ['username','password'].forEach(function(s){
+    var f=document.getElementById('acc-'+s+'-form');
+    if(f)f.style.display='none';
+  });
+  document.getElementById('ov-account').classList.add('on');
+}
+
+function closeAccountModal(){
+  document.getElementById('ov-account').classList.remove('on');
+}
+
+function toggleAccSection(section){
+  var form=document.getElementById('acc-'+section+'-form');
+  var arrow=document.getElementById('acc-'+section+'-arrow');
+  var isOpen=form.style.display==='flex'||form.style.display==='block';
+  // Close all first
+  ['username','password'].forEach(function(s){
+    var f=document.getElementById('acc-'+s+'-form');
+    var a=document.getElementById('acc-'+s+'-arrow');
+    if(f)f.style.display='none';
+    if(a)a.textContent='▾';
+  });
+  // Toggle clicked
+  if(!isOpen){
+    form.style.display='flex';
+    arrow.textContent='▴';
+  }
+}
+
+async function doChangeUsername(){
+  var newName=document.getElementById('acc-new-username').value.trim();
+  if(!newName)return showToast('⚠️ Enter a username');
+  var btn=document.getElementById('acc-username-btn');
+  btn.disabled=true;btn.textContent='Saving...';
+  try{
+    await window._auth.currentUser.updateProfile({displayName:newName});
+    // Update in Firebase users node
+    if(window._db&&window._update&&window._ref){
+      await window._update(window._ref(window._db,'users/'+window._currentUser.uid),{displayName:newName});
+    }
+    window._currentUser=window._auth.currentUser;
+    document.getElementById('user-name').textContent=newName;
+    document.getElementById('acc-name').textContent=newName;
+    document.getElementById('acc-av').textContent=newName[0].toUpperCase();
+    document.getElementById('user-av').textContent=newName[0].toUpperCase();
+    document.getElementById('acc-new-username').value='';
+    showToast('✅ Username updated!');
+    toggleAccSection('username');
+  }catch(e){showToast('⚠️ '+e.message);}
+  btn.disabled=false;btn.textContent='Save Username';
+}
+
+async function doChangePassword(){
+  var cur=document.getElementById('acc-cur-pass').value;
+  var nw=document.getElementById('acc-new-pass').value;
+  var cf=document.getElementById('acc-confirm-pass').value;
+  if(!cur||!nw||!cf)return showToast('⚠️ Fill in all fields');
+  if(nw!==cf)return showToast('⚠️ Passwords do not match');
+  if(nw.length<6)return showToast('⚠️ Min 6 characters');
+  var btn=document.getElementById('acc-password-btn');
+  btn.disabled=true;btn.textContent='Saving...';
+  try{
+    // Re-authenticate first
+    var {EmailAuthProvider,reauthenticateWithCredential}=await import('https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js');
+    var credential=EmailAuthProvider.credential(window._currentUser.email,cur);
+    await reauthenticateWithCredential(window._auth.currentUser,credential);
+    // Update password
+    var {updatePassword}=await import('https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js');
+    await updatePassword(window._auth.currentUser,nw);
+    document.getElementById('acc-cur-pass').value='';
+    document.getElementById('acc-new-pass').value='';
+    document.getElementById('acc-confirm-pass').value='';
+    showToast('✅ Password updated!');
+    toggleAccSection('password');
+  }catch(e){
+    var msg=e.code==='auth/wrong-password'?'Wrong current password':e.message;
+    showToast('⚠️ '+msg);
+  }
+  btn.disabled=false;btn.textContent='Save Password';
+}
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200);}
 
 /* PWA */
@@ -1385,5 +1496,61 @@ renderApp();
 <script src="app-modals.js"></script>
 <script src="app-friends.js"></script>
 <script src="app-ai.js"></script>
+<!-- ACCOUNT MODAL -->
+<div class="overlay" id="ov-account" onclick="if(event.target===this)closeAccountModal()">
+  <div style="background:var(--surface);border:1px solid var(--border-h);border-radius:20px;width:100%;max-width:400px;display:flex;flex-direction:column;box-shadow:0 28px 90px rgba(0,0,0,0.65);animation:min 0.28s cubic-bezier(0.34,1.56,0.64,1);overflow:hidden">
+    
+    <!-- Header -->
+    <div style="padding:20px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;background:linear-gradient(135deg,#3b82f6,#22d3ee);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff" id="acc-av">?</div>
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--text-b)" id="acc-name">User</div>
+          <div style="font-size:11px;color:var(--text-m);font-family:'JetBrains Mono',monospace" id="acc-email"></div>
+        </div>
+      </div>
+      <button onclick="closeAccountModal()" style="width:30px;height:30px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--text-m);transition:all 0.2s" onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-m)'">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
+
+      <!-- Change Username -->
+      <div id="acc-username-section">
+        <button onclick="toggleAccSection('username')" style="width:100%;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;cursor:pointer;transition:all 0.2s;text-align:left" onmouseover="this.style.borderColor='var(--border-h)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="font-size:16px">✏️</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text-b)">Change Username</span>
+          <span style="margin-left:auto;color:var(--text-m);font-size:11px" id="acc-username-arrow">▾</span>
+        </button>
+        <div id="acc-username-form" style="display:none;padding:12px 4px 4px;display:flex;flex-direction:column;gap:8px">
+          <input id="acc-new-username" placeholder="New username" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:10px 13px;outline:none;transition:all 0.2s" onfocus="this.style.borderColor='var(--a)'" onblur="this.style.borderColor='var(--border)'">
+          <button onclick="doChangeUsername()" style="padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s" id="acc-username-btn">Save Username</button>
+        </div>
+      </div>
+
+      <!-- Change Password -->
+      <div id="acc-password-section">
+        <button onclick="toggleAccSection('password')" style="width:100%;display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;cursor:pointer;transition:all 0.2s;text-align:left" onmouseover="this.style.borderColor='var(--border-h)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="font-size:16px">🔑</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text-b)">Change Password</span>
+          <span style="margin-left:auto;color:var(--text-m);font-size:11px" id="acc-password-arrow">▾</span>
+        </button>
+        <div id="acc-password-form" style="display:none;flex-direction:column;gap:8px;padding:12px 4px 4px">
+          <input id="acc-cur-pass" type="password" placeholder="Current password" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:10px 13px;outline:none;transition:all 0.2s" onfocus="this.style.borderColor='var(--a)'" onblur="this.style.borderColor='var(--border)'">
+          <input id="acc-new-pass" type="password" placeholder="New password" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:10px 13px;outline:none;transition:all 0.2s" onfocus="this.style.borderColor='var(--a)'" onblur="this.style.borderColor='var(--border)'">
+          <input id="acc-confirm-pass" type="password" placeholder="Confirm new password" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:10px 13px;outline:none;transition:all 0.2s" onfocus="this.style.borderColor='var(--a)'" onblur="this.style.borderColor='var(--border)'">
+          <button onclick="doChangePassword()" style="padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s" id="acc-password-btn">Save Password</button>
+        </div>
+      </div>
+
+      <!-- Logout -->
+      <button onclick="doSignOut()" style="width:100%;display:flex;align-items:center;gap:10px;background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.25);border-radius:12px;padding:13px 15px;cursor:pointer;transition:all 0.2s;margin-top:4px" onmouseover="this.style.background='rgba(248,113,113,0.15)';this.style.borderColor='var(--red)'" onmouseout="this.style.background='rgba(248,113,113,0.07)';this.style.borderColor='rgba(248,113,113,0.25)'">
+        <span style="font-size:16px">🚪</span>
+        <span style="font-size:13px;font-weight:700;color:var(--red)">Log Out</span>
+      </button>
+
+    </div>
+  </div>
+</div>
 </body>
 </html>

@@ -787,8 +787,9 @@ function injectFriendStyles() {
 .sbm-strip-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-m);flex-shrink:0}
 .sbm-strip-chip{display:inline-flex;align-items:center;gap:4px;background:var(--surface3);border:1px solid var(--border-h);border-radius:20px;padding:2px 8px 2px 4px;font-size:11px;font-weight:600;color:var(--text-b)}
 .sbm-strip-av{width:16px;height:16px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#22d3ee);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0}
-.friend-nav-btn{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.2s;color:var(--text-m);flex-shrink:0}
-.friend-nav-btn:hover{border-color:var(--border-h);color:var(--text-b)}
+.friend-nav-btn{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.2s;color:var(--text-m)!important;flex-shrink:0;outline:none!important;-webkit-tap-highlight-color:transparent}
+.friend-nav-btn:hover{border-color:var(--border-h);color:var(--text-b)!important}
+.friend-nav-btn:focus,.friend-nav-btn:active,.friend-nav-btn:focus-visible{outline:none!important;box-shadow:none!important;color:var(--text-m)!important;background:var(--surface2)!important;border-color:var(--border)!important}
 #friend-notif-badge{position:absolute;top:-5px;right:-5px;width:17px;height:17px;background:#f87171;border-radius:50%;font-size:9px;font-weight:800;color:#fff;display:none;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;border:2px solid var(--bg)}
 
 /* ── Share btn on note card ── */
