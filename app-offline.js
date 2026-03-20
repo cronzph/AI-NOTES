@@ -29,17 +29,29 @@ function cacheNotes(notes) {
       fbKey:n.fbKey||'', id:n.id, title:n.title, category:n.category,
       summary:n.summary, keyPoints:n.keyPoints, organizedContent:n.organizedContent,
       rawNote:(n.rawNote||'').slice(0,400), source:n.source,
-      isPublic:n.isPublic, date:n.date, author:n.author,
+      isPublic:n.isPublic, date:n.date, time:n.time||'', author:n.author,
       imageData:(n.imageData||'').length<60000?(n.imageData||''):'',
       _offline:n._offline||false
     }));
     localStorage.setItem(CACHE_KEY, JSON.stringify(slim));
+    // Also cache AI memory
+    if(window.aiMemory && Object.keys(window.aiMemory).length > 0){
+      localStorage.setItem('notesai_memory_cache', JSON.stringify(window.aiMemory));
+    }
+    // Cache user info
+    if(window._currentUser){
+      localStorage.setItem('notesai_user_cache', JSON.stringify({
+        uid: window._currentUser.uid,
+        displayName: window._currentUser.displayName,
+        email: window._currentUser.email,
+      }));
+    }
   } catch(e) {
     try {
       const min=(notes||[]).map(n=>({
         fbKey:n.fbKey||'',id:n.id,title:n.title,category:n.category,
         summary:n.summary,source:n.source,isPublic:n.isPublic,
-        date:n.date,author:n.author,rawNote:'',imageData:''
+        date:n.date,time:n.time||'',author:n.author,rawNote:'',imageData:''
       }));
       localStorage.setItem(CACHE_KEY, JSON.stringify(min));
     } catch(e2){}
@@ -397,7 +409,24 @@ window.addEventListener('DOMContentLoaded', () => {
           showToast('📴 Offline — walang cached notes pa');
         }
       }
+      // Restore AI memory from cache if empty
+      if(!window.aiMemory || Object.keys(window.aiMemory).length === 0){
+        try{
+          var memCache = localStorage.getItem('notesai_memory_cache');
+          if(memCache){
+            window.aiMemory = JSON.parse(memCache);
+            if(typeof updateMemoryBadge === 'function') updateMemoryBadge();
+          }
+        }catch(e){}
+      }
     }, 1500);
+  } else {
+    // Online — cache notes after load
+    setTimeout(function(){
+      if(window.allNotes && window.allNotes.length > 0){
+        cacheNotes(window.allNotes);
+      }
+    }, 3000);
   }
 });
 

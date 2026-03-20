@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="screen-orientation" content="portrait">
+<meta name="x5-orientation" content="portrait">
 <meta name="theme-color" content="#050810">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,7 +15,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
   import { getDatabase, ref, push, onValue, remove, update, get, goOnline, goOffline } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-database.js";
-  import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+  import { getAuth, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
 
   async function initFirebase() {
     try {
@@ -29,6 +31,9 @@
       const db = getDatabase(app);
       const auth = getAuth(app);
       window._db = db; window._auth = auth;
+      // Set auth persistence based on user preference
+      const autoLogin = localStorage.getItem('notesai_autologin') !== 'false';
+      await setPersistence(auth, autoLogin ? browserLocalPersistence : browserSessionPersistence);
       window._goOnline = () => goOnline(db);
       window._goOffline = () => goOffline(db);
       // Keep notes synced for offline access
@@ -491,6 +496,18 @@ textarea.ti::placeholder{color:var(--text-m);font-size:11.5px}
   .modal-view,.modal-edit{max-height:96vh;border-radius:16px}
   .ai-panel{width:calc(100vw - 32px);right:16px;bottom:80px;max-height:60vh}
   .ai-fab{bottom:16px;right:16px}
+}
+@media screen and (orientation:landscape) and (max-width:768px){
+  html{
+    transform:rotate(-90deg);
+    transform-origin:left top;
+    width:100vh;
+    height:100vw;
+    overflow-x:hidden;
+    position:absolute;
+    top:100%;
+    left:0;
+  }
 }
 .fd-pill{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-m);font-family:'Outfit',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.2s}
 .fd-pill:hover{border-color:var(--border-h);color:var(--text-b)}
@@ -1365,6 +1382,12 @@ function openAccountModal(){
     var f=document.getElementById('acc-'+s+'-form');
     if(f)f.style.display='none';
   });
+  // Set auto login toggle state
+  var autoLogin = localStorage.getItem('notesai_autologin') !== 'false';
+  var toggle = document.getElementById('acc-autologin-toggle');
+  if(toggle) toggle.checked = autoLogin;
+  var toggleLabel = document.getElementById('acc-autologin-label');
+  if(toggleLabel) toggleLabel.textContent = autoLogin ? 'ON' : 'OFF';
   document.getElementById('ov-account').classList.add('on');
 }
 
@@ -1440,6 +1463,24 @@ async function doChangePassword(){
     showToast('⚠️ '+msg);
   }
   btn.disabled=false;btn.textContent='Save Password';
+}
+function toggleAutoLogin(enabled){
+  localStorage.setItem('notesai_autologin', enabled ? 'true' : 'false');
+  var label = document.getElementById('acc-autologin-label');
+  var track = document.getElementById('acc-autologin-track');
+  var thumb = document.getElementById('acc-autologin-thumb');
+  if(label) label.textContent = enabled ? 'ON' : 'OFF';
+  if(label) label.style.color = enabled ? 'var(--a2)' : 'var(--text-m)';
+  if(track) track.style.background = enabled ? 'var(--a)' : 'var(--border-h)';
+  if(thumb) thumb.style.transform = enabled ? 'translateX(18px)' : 'translateX(0)';
+  // Re-set Firebase persistence
+  if(window._auth){
+    import('https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js').then(function(m){
+      m.setPersistence(window._auth, enabled ? m.browserLocalPersistence : m.browserSessionPersistence)
+        .then(function(){ showToast(enabled ? '🔐 Auto Login ON' : '🔓 Auto Login OFF'); })
+        .catch(function(e){ showToast('⚠️ '+e.message); });
+    });
+  }
 }
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3200);}
 
@@ -1540,6 +1581,25 @@ renderApp();
           <input id="acc-new-pass" type="password" placeholder="New password" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:10px 13px;outline:none;transition:all 0.2s" onfocus="this.style.borderColor='var(--a)'" onblur="this.style.borderColor='var(--border)'">
           <input id="acc-confirm-pass" type="password" placeholder="Confirm new password" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-b);font-family:'Outfit',sans-serif;font-size:13px;padding:10px 13px;outline:none;transition:all 0.2s" onfocus="this.style.borderColor='var(--a)'" onblur="this.style.borderColor='var(--border)'">
           <button onclick="doChangePassword()" style="padding:10px;border:none;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff;font-family:'Outfit',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all 0.2s" id="acc-password-btn">Save Password</button>
+        </div>
+      </div>
+
+      <!-- Auto Login Toggle -->
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 15px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:16px">🔐</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text-b)">Auto Login</div>
+            <div style="font-size:11px;color:var(--text-m);margin-top:2px">Stay logged in after closing browser</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="acc-autologin-label" style="font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--a2)">ON</span>
+          <label style="position:relative;width:40px;height:22px;flex-shrink:0;cursor:pointer">
+            <input type="checkbox" id="acc-autologin-toggle" checked onchange="toggleAutoLogin(this.checked)" style="position:absolute;opacity:0;width:100%;height:100%;cursor:pointer;margin:0;z-index:1">
+            <div id="acc-autologin-track" style="position:absolute;inset:0;background:var(--a);border-radius:11px;transition:background 0.2s"></div>
+            <div id="acc-autologin-thumb" style="position:absolute;top:3px;left:3px;width:16px;height:16px;background:#fff;border-radius:50%;transition:transform 0.2s;pointer-events:none"></div>
+          </label>
         </div>
       </div>
 
