@@ -34,7 +34,7 @@
       // Keep notes synced for offline access
       onValue(ref(db, 'notes'), () => {}, { onlyOnce: false });
       window._ref = ref; window._push = push; window._remove = remove;
-      window._update = update; window._get = get;
+      window._update = update; window._get = get; window._onValue = onValue;
       window._signOut = () => signOut(auth);
 
       onAuthStateChanged(auth, user => {
